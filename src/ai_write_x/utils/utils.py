@@ -687,3 +687,97 @@ def get_cover_path(article_path):
                 pass
 
     return cover_path
+
+
+def get_article_meta_path(article_path):
+    """文章元数据文件路径（与文章同名的 .meta.json）"""
+    return Path(article_path).with_suffix(".meta.json")
+
+
+def save_article_meta(article_path, meta: dict):
+    """保存文章生成元数据"""
+    if not article_path:
+        return
+
+    meta_path = get_article_meta_path(article_path)
+    data = dict(meta or {})
+    data.setdefault("use_template", False)
+    data.setdefault("formatting_mode", "raw")
+    data.setdefault("template_category", "")
+    data.setdefault("template_name", "")
+    data.setdefault("template_path", "")
+    data.setdefault("template_display", format_template_display(data))
+
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_article_meta(article_path) -> dict:
+    """读取文章生成元数据"""
+    empty = {
+        "use_template": False,
+        "formatting_mode": "raw",
+        "template_category": "",
+        "template_name": "",
+        "template_path": "",
+        "template_display": "未记录模板",
+    }
+    if not article_path:
+        return empty
+
+    meta_path = get_article_meta_path(article_path)
+    if not meta_path.exists():
+        return empty
+
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return empty
+        data.setdefault("use_template", False)
+        data.setdefault("formatting_mode", data.get("formatting_mode") or "raw")
+        data.setdefault("template_category", "")
+        data.setdefault("template_name", "")
+        data.setdefault("template_path", "")
+        data["template_display"] = data.get("template_display") or format_template_display(data)
+        return data
+    except Exception:
+        return empty
+
+
+def format_template_display(meta: dict) -> str:
+    """生成文章列表展示用的模板文案"""
+    if not meta:
+        return "未记录模板"
+
+    mode = meta.get("formatting_mode") or "raw"
+    if mode == "template" or meta.get("use_template"):
+        category = (meta.get("template_category") or "").strip()
+        name = (meta.get("template_name") or "").strip()
+        if category and name:
+            return f"{category}/{name}"
+        if name:
+            return name
+        if category:
+            return category
+        return "已使用模板"
+    if mode == "design":
+        return "AI设计"
+    if mode == "raw":
+        return "未使用模板"
+    return "未记录模板"
+
+
+def delete_article_sidecars(article_path):
+    """删除文章关联的 sidecar 文件"""
+    if not article_path:
+        return
+
+    base = Path(article_path)
+    for suffix in (".meta.json", ".design.json"):
+        sidecar = base.with_suffix(suffix)
+        if sidecar.exists():
+            try:
+                sidecar.unlink()
+            except Exception:
+                pass

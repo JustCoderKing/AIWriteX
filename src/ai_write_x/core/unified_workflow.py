@@ -60,19 +60,23 @@ class UnifiedContentWorkflow:
         publish_platform = kwargs.get("publish_platform", PlatformType.WECHAT.value)
         writer_des = f"""基于话题'{{topic}}'和搜索工具获取的最新信息，撰写一篇高质量的文章。
 
-工具 aiforge_search_tool 使用参数：
+工具 aiforge_search_tool 使用参数（必须是单个 JSON 对象，不能是数组）：
     topic={{topic}}
     urls={{urls}}
     reference_ratio={{reference_ratio}}
 
 执行步骤：
-1. 使用 aiforge_search_tool 获取关于'{{topic}}'的最新信息
+1. 使用 aiforge_search_tool 获取关于'{{topic}}'的最新信息（最多成功调用 1 次）
 2. 根据搜索结果的来源类型调整写作策略：
     - 如果是"参考文章"结果：基于提供的参考内容进行创作，根据参考比例调整借鉴程度
     - 如果是"搜索"结果：基于搜索到的信息进行原创写作
     - 优先使用搜索结果中的真实发布时间和数据
     - 如果没有获取到有效结果：使用通用时间表述进行原创写作
-3. 确保文章逻辑清晰、内容完整、语言流畅
+3. 一旦工具返回了搜索结果、失败说明，或提示不能重复使用相同参数：
+    - 立刻停止调用任何工具
+    - 直接输出 Final Answer（完整文章）
+    - 严禁用相同或相近 topic 再次调用 aiforge_search_tool
+4. 确保文章逻辑清晰、内容完整、语言流畅
 
 文章要求：
 - 标题：当{{platform}}不为空时为"{{platform}}|{{topic}}"，否则为"{{topic}}"
@@ -205,6 +209,8 @@ class UnifiedContentWorkflow:
         """内容转换：template或design路径的AI处理"""
         config = Config.get_instance()
         adapter = self.platform_adapters.get(publish_platform)
+        config.last_used_template = None
+        config.last_formatting_mode = "raw"
 
         if not adapter:
             raise ValueError(f"不支持的平台: {publish_platform}")
@@ -214,8 +220,13 @@ class UnifiedContentWorkflow:
             if config.use_template and adapter.supports_template():
                 return self._apply_template_formatting(content, **kwargs)
             else:
-                return self._apply_design_formatting(content, publish_platform, **kwargs)
+                result = self._apply_design_formatting(content, publish_platform, **kwargs)
+                config.last_formatting_mode = "design"
+                config.last_used_template = None
+                return result
         else:
+            config.last_formatting_mode = "raw"
+            config.last_used_template = None
             return content
 
     def _apply_template_formatting(self, content: ContentResult, **kwargs) -> ContentResult:
@@ -486,7 +497,25 @@ class UnifiedContentWorkflow:
         with open(save_path, "w", encoding="utf-8") as f:
             f.write(content.content)
 
-        return {"success": True, "path": save_path, "title": title, "format": config.article_format}
+        template_info = config.last_used_template or {}
+        formatting_mode = getattr(config, "last_formatting_mode", "raw") or "raw"
+        meta = {
+            "use_template": formatting_mode == "template",
+            "formatting_mode": formatting_mode,
+            "template_category": template_info.get("category", ""),
+            "template_name": template_info.get("name", ""),
+            "template_path": template_info.get("path", ""),
+        }
+        meta["template_display"] = utils.format_template_display(meta)
+        utils.save_article_meta(save_path, meta)
+
+        return {
+            "success": True,
+            "path": save_path,
+            "title": title,
+            "format": config.article_format,
+            "template": meta,
+        }
 
     def _get_save_path(self, title: str, file_extension: str) -> str:
         """获取保存路径"""

@@ -35,14 +35,14 @@ platforms:
 publish_platform: wechat
 wechat:
   credentials:
-    - appid: ""
-      appsecret: ""
-      author: ""
+    - appid: wx9ce8494114d8e0f6
+      appsecret: 398cda5686801e94d11fd8a965b944c9
+      author: ''
       call_sendall: false
       sendall: true
       tag_id: 0
 api:
-  api_type: OpenRouter
+  api_type: MiniMax
   OpenRouter:
     key: OPENROUTER_API_KEY
     key_index: 0
@@ -156,7 +156,8 @@ api:
   MiniMax:
     key: OPENAI_API_KEY
     key_index: 0
-    api_key: []
+    api_key:
+      - sk-cp-0aD6JMLfmExYhao_xzEZxf43_EdubDAJaz53vFXMOfjjdKP8MxcjKISPDUD0BnhZfvxu2o91Km6k0g1DiPSHpSdpOkG_PccKhuWlG676l3HPBPqXj9N6SfQ
     model_index: 0
     model:
       - openai/MiniMax-M2.5
@@ -168,14 +169,14 @@ api:
 img_api:
   api_type: picsum
   ali:
-    api_key: ""
+    api_key: ''
     model: wanx2.0-t2i-turbo
   picsum:
-    api_key: ""
-    model: ""
+    api_key: ''
+    model: ''
 use_template: true
-template_category: ""
-template: ""
+template_category: ''
+template: ''
 use_compress: true
 aiforge_search_max_results: 10
 aiforge_search_min_results: 1
@@ -234,8 +235,8 @@ dimensional_creative:
     style:
       name: 文体风格
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: poetry
           value: 诗歌
@@ -280,8 +281,8 @@ dimensional_creative:
     culture:
       name: 文化视角
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: eastern_philosophy
           value: 东方哲学
@@ -326,8 +327,8 @@ dimensional_creative:
     time:
       name: 时空背景
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: ancient_china
           value: 春秋战国
@@ -372,8 +373,8 @@ dimensional_creative:
     personality:
       name: 人格角色
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: libai
           value: 李白
@@ -426,8 +427,8 @@ dimensional_creative:
     emotion:
       name: 情感调性
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: healing
           value: 治愈系
@@ -472,8 +473,8 @@ dimensional_creative:
     format:
       name: 表达格式
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: diary
           value: 日记体
@@ -518,8 +519,8 @@ dimensional_creative:
     scene:
       name: 场景环境
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: coffee_shop
           value: 咖啡馆
@@ -564,8 +565,8 @@ dimensional_creative:
     audience:
       name: 目标受众
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: gen_z
           value: Z世代
@@ -610,8 +611,8 @@ dimensional_creative:
     theme:
       name: 主题内容
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: growth
           value: 成长蜕变
@@ -656,8 +657,8 @@ dimensional_creative:
     technique:
       name: 表现技法
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: first_person
           value: 第一人称
@@ -702,8 +703,8 @@ dimensional_creative:
     language:
       name: 语言风格
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: classical
           value: 古典雅致
@@ -740,8 +741,8 @@ dimensional_creative:
     tone:
       name: 语调语气
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: serious
           value: 严肃庄重
@@ -778,8 +779,8 @@ dimensional_creative:
     perspective:
       name: 叙述视角
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: first_person
           value: 第一人称
@@ -812,8 +813,8 @@ dimensional_creative:
     structure:
       name: 文章结构
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: chronological
           value: 时间顺序
@@ -850,8 +851,8 @@ dimensional_creative:
     rhythm:
       name: 节奏韵律
       allow_custom: true
-      selected_option: ""
-      custom_input: ""
+      selected_option: ''
+      custom_input: ''
       preset_options:
         - name: fast
           value: 快节奏
@@ -886,22 +887,22 @@ page_design:
   container:
     max_width: 750
     margin_horizontal: 10
-    background_color: "#f8f9fa"
+    background_color: '#f8f9fa'
   card:
     border_radius: 12
     box_shadow: 0 4px 16px rgba(0,0,0,0.06)
     padding: 24
-    background_color: "#ffffff"
+    background_color: '#ffffff'
   typography:
     base_font_size: 16
     line_height: 1.6
     heading_scale: 1.5
-    text_color: "#333333"
-    heading_color: "#333333"
+    text_color: '#333333'
+    heading_color: '#333333'
   spacing:
     section_margin: 24
     element_margin: 16
   accent:
-    primary_color: "#3a7bd5"
-    secondary_color: "#00b09b"
-    highlight_bg: "#f0f7ff"
+    primary_color: '#3a7bd5'
+    secondary_color: '#00b09b'
+    highlight_bg: '#f0f7ff'

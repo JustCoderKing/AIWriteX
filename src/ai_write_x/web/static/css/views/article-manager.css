@@ -105,7 +105,35 @@
     text-overflow: ellipsis;  
     white-space: nowrap;  
     vertical-align: middle;  
-}  
+}
+
+/* 模板信息徽章 */
+.template-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.4;
+    font-weight: 500;
+    display: inline-block;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    background: rgba(59, 130, 246, 0.12);
+    color: #2563eb;
+}
+
+.template-badge.template-design {
+    background: rgba(168, 85, 247, 0.12);
+    color: #7c3aed;
+}
+
+.template-badge.template-raw,
+.template-badge.template- {
+    background: rgba(107, 114, 128, 0.12);
+    color: #4b5563;
+}
   
 /* 发布状态徽章 */  
 .status-badge {  
@@ -794,31 +822,36 @@
 /* 徽章宽度调整 */  
 @media (min-width: 1400px) and (max-width: 1920px) {  
     .format-badge,  
-    .status-badge {  
+    .status-badge,
+    .template-badge {  
         max-width: 140px;  
     }  
 }  
   
 @media (min-width: 1920px) and (max-width: 2560px) {  
     .format-badge,  
-    .status-badge {  
+    .status-badge,
+    .template-badge {  
         max-width: 160px;  
     }  
       
     .content-grid.list-view .format-badge,  
-    .content-grid.list-view .status-badge {  
+    .content-grid.list-view .status-badge,
+    .content-grid.list-view .template-badge {  
         max-width: 200px;  
     }  
 }  
   
 @media (min-width: 2560px) {  
     .format-badge,  
-    .status-badge {  
+    .status-badge,
+    .template-badge {  
         max-width: 180px;  
     }  
       
     .content-grid.list-view .format-badge,  
-    .content-grid.list-view .status-badge {  
+    .content-grid.list-view .status-badge,
+    .content-grid.list-view .template-badge {  
         max-width: 250px;  
     }  
 }  

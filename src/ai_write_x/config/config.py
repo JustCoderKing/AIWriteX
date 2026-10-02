@@ -1359,6 +1359,14 @@ class Config:
                     "timeout": 60,
                     "max_tokens": 4096,
                 },
+                "minimax": {
+                    "type": "minimax",
+                    "model": "MiniMax-M2.5",
+                    "api_key": "",
+                    "base_url": "https://api.minimaxi.com/v1",
+                    "timeout": 60,
+                    "max_tokens": 8192,
+                },
             },
             "cache": {
                 "code": {
@@ -1418,6 +1426,8 @@ class Config:
                             "api.x.ai",
                             "dashscope.aliyuncs.com",
                             "generativelanguage.googleapis.com",
+                            "api.minimaxi.com",
+                            "minimaxi.com",
                         ],
                         "blacklist": ["malicious-site.com"],
                         "task_overrides": {
@@ -1486,6 +1496,9 @@ class Config:
         self.reference_ratio = 0.0  # 文章借鉴比例[0-1]
         self.custom_template_category = ""  # 自定义话题时，模板分类
         self.custom_template = ""  # 自定义话题时，模板
+        # 最近一次生成实际选用的模板（运行时字段，不写入 config.yaml）
+        self.last_used_template = None
+        self.last_formatting_mode = "raw"
 
         self._license_edition = "basic"  # 默认基础版
         self._license_custom_features = []
@@ -1801,6 +1814,8 @@ class Config:
                         self.aiforge_config = tomlkit.parse(f.read())
                         if not self.aiforge_config:
                             self.aiforge_config = self.default_aiforge_config
+                        else:
+                            self._merge_aiforge_defaults()
                 except Exception as e:
                     self.error_message = f"加载 aiforge.toml 失败: {e}"
                     log.print_log(self.error_message, "error")
@@ -1810,6 +1825,42 @@ class Config:
                 self.aiforge_config = self.default_aiforge_config
 
             return ret
+
+    def _merge_aiforge_defaults(self):
+        """把默认配置里新增的提供商/域名合并进已有 aiforge 配置，不覆盖用户已填值"""
+        if not isinstance(self.aiforge_config, dict):
+            return
+
+        default_llm = self.default_aiforge_config.get("llm", {})
+        current_llm = self.aiforge_config.get("llm")
+        if current_llm is None:
+            self.aiforge_config["llm"] = default_llm
+        else:
+            for provider, provider_cfg in default_llm.items():
+                if provider not in current_llm:
+                    current_llm[provider] = provider_cfg
+
+        try:
+            whitelist = (
+                self.aiforge_config.get("security", {})
+                .get("network", {})
+                .get("domain_filtering", {})
+                .get("whitelist")
+            )
+            default_whitelist = (
+                self.default_aiforge_config.get("security", {})
+                .get("network", {})
+                .get("domain_filtering", {})
+                .get("whitelist", [])
+            )
+            if whitelist is not None:
+                existing = set(whitelist)
+                for domain in default_whitelist:
+                    if domain not in existing:
+                        whitelist.append(domain)
+                        existing.add(domain)
+        except Exception:
+            pass
 
     def save_config(self, config, aiforge_config=None):
         """保存配置到 config.yaml，不验证"""

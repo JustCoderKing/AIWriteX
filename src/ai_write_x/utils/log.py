@@ -31,7 +31,8 @@ class FileLoggingHandler:
                 msg_type = msg_dict.get("type", "info")
                 message = msg_dict.get("message", "")
 
-                # 统一格式化
+                # 统一格式化（还原 \\uXXXX，避免 topic 在日志里不可读）
+                message = sanitize_log_text(message)
                 log_entry = f"[{datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')}] [{msg_type.upper()}]: {message}"  # noqa 501
 
                 with open(self.log_file_path, "a", encoding="utf-8") as f:
@@ -123,6 +124,29 @@ def strip_ansi_codes(text):
     return re.sub(ansi_pattern, "", text)
 
 
+def decode_unicode_escapes(text):
+    """把日志里的 \\uXXXX 还原成可读中文（CrewAI Tool Input 常用 ensure_ascii）。"""
+    if not isinstance(text, str) or "\\u" not in text:
+        return text
+
+    def _repl(match):
+        try:
+            return chr(int(match.group(1), 16))
+        except Exception:
+            return match.group(0)
+
+    # 同时处理字面量 \\uXXXX 与日志中已写成 \uXXXX 的形式
+    decoded = re.sub(r"\\u([0-9a-fA-F]{4})", _repl, text)
+    return decoded
+
+
+def sanitize_log_text(text):
+    """日志落盘/展示前统一清洗。"""
+    if not isinstance(text, str):
+        return text
+    return decode_unicode_escapes(strip_ansi_codes(text))
+
+
 # ==================== 进程间通信日志处理器 ====================
 
 
@@ -139,8 +163,7 @@ class ProcessLoggingHandler(logging.Handler):
             if record.name in ["httpx", "httpcore", "openai"]:
                 return
 
-            msg = self.format(record)
-            msg = strip_ansi_codes(msg)
+            msg = sanitize_log_text(self.format(record))
             self.process_queue.put(
                 {
                     "type": "log",
@@ -197,11 +220,11 @@ class ProcessStreamHandler:
                 parts = self._buffer.split("[AIForge]")
                 for i, part in enumerate(parts[:-1]):
                     if i == 0 and part.strip():
-                        clean_msg = strip_ansi_codes(part.strip())
+                        clean_msg = sanitize_log_text(part.strip())
                         self._send_to_queue(clean_msg)
                     elif i > 0:
                         aiforge_msg = f"[AIForge]{part}"
-                        clean_msg = strip_ansi_codes(aiforge_msg.strip())
+                        clean_msg = sanitize_log_text(aiforge_msg.strip())
                         if clean_msg:
                             self._send_to_queue(clean_msg)
 
@@ -223,7 +246,7 @@ class ProcessStreamHandler:
                 lines = self._buffer.split("\\n")
                 for line in lines[:-1]:
                     if line.strip():
-                        clean_msg = strip_ansi_codes(line.strip())
+                        clean_msg = sanitize_log_text(line.strip())
                         self._send_to_queue(clean_msg)
 
                 self._buffer = lines[-1]
@@ -237,7 +260,7 @@ class ProcessStreamHandler:
     def _force_flush(self):
         """强制刷新超长内容"""
         if self._buffer.strip():
-            clean_msg = strip_ansi_codes(self._buffer.strip())
+            clean_msg = sanitize_log_text(self._buffer.strip())
             # 统一格式化
             self._send_to_queue({"type": "print", "message": clean_msg, "timestamp": time.time()})
             self._buffer = ""
@@ -247,8 +270,15 @@ class ProcessStreamHandler:
         try:
             # 确保消息格式统一
             if isinstance(message, str):
-                formatted_message = {"type": "print", "message": message, "timestamp": time.time()}
+                formatted_message = {
+                    "type": "print",
+                    "message": sanitize_log_text(message),
+                    "timestamp": time.time(),
+                }
             else:
+                if isinstance(message, dict) and "message" in message:
+                    message = dict(message)
+                    message["message"] = sanitize_log_text(message.get("message", ""))
                 formatted_message = message
 
             self.process_queue.put(formatted_message, timeout=1.0)
@@ -266,7 +296,7 @@ class ProcessStreamHandler:
     def flush(self):
         # 发送缓冲区中剩余的内容
         if self._buffer.strip():
-            clean_msg = strip_ansi_codes(self._buffer.strip())
+            clean_msg = sanitize_log_text(self._buffer.strip())
             self._send_to_queue({"type": "print", "message": clean_msg, "timestamp": time.time()})
             self._buffer = ""
 
@@ -315,8 +345,7 @@ class QueueLoggingHandler(logging.Handler):
             if record.name in ["httpx", "httpcore", "openai"]:
                 return
 
-            msg = self.format(record)
-            msg = strip_ansi_codes(msg)
+            msg = sanitize_log_text(self.format(record))
             self.queue.put({"type": "status", "value": f"LOG: {msg}"})
         except Exception:
             self.handleError(record)
@@ -331,25 +360,25 @@ class QueueStreamHandler:
 
     def write(self, msg):
         if msg.strip():
-            clean_msg = strip_ansi_codes(msg.rstrip())
+            clean_msg = sanitize_log_text(msg.rstrip())
             self.queue.put({"type": "status", "value": f"PRINT: {clean_msg}"})
 
             # 只在开发模式下输出到终端
             if not utils.get_is_release_ver() and self.original_stdout is not None:
                 try:
-                    self.original_stdout.write(msg.rstrip() + "\n")
+                    self.original_stdout.write(clean_msg + "\n")
                     self.original_stdout.flush()
                 except UnicodeEncodeError:
                     try:
                         encoded_msg = (
-                            msg.rstrip()
+                            clean_msg
                             .encode(self.original_stdout.encoding or "utf-8", errors="replace")
                             .decode(self.original_stdout.encoding or "utf-8")
                         )
                         self.original_stdout.write(encoded_msg + "\n")
                         self.original_stdout.flush()
                     except Exception:
-                        safe_msg = msg.rstrip().encode("ascii", errors="ignore").decode("ascii")
+                        safe_msg = clean_msg.encode("ascii", errors="ignore").decode("ascii")
                         self.original_stdout.write(safe_msg + "\n")
                         self.original_stdout.flush()
 
@@ -434,6 +463,8 @@ def print_log(msg, msg_type="status", show_in_ui=True):
         msg_type: 消息类型
         show_in_ui: False 表示只输出到终端/文件,不发送到 UI
     """
+    msg = sanitize_log_text(msg) if isinstance(msg, str) else msg
+
     if not show_in_ui:
         # 只输出到终端
         print(utils.format_log_message(msg, msg_type))

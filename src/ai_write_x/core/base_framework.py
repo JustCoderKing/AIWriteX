@@ -35,6 +35,7 @@ class AgentConfig:
     memory: bool = True
     max_rpm: int = 100
     verbose: bool = True
+    max_iter: int = 8
     system_template: Optional[str] = None
     prompt_template: Optional[str] = None
     response_template: Optional[str] = None

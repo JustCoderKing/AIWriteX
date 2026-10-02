@@ -45,6 +45,7 @@ async def list_articles():
             stat = file_path.stat()
             title = file_path.stem.replace("_", "|")
             status = get_publish_status(title)
+            meta = utils.load_article_meta(str(file_path))
 
             articles.append(
                 {
@@ -57,6 +58,12 @@ async def list_articles():
                         "%Y-%m-%d %H:%M:%S"
                     ),
                     "status": status,
+                    "use_template": meta.get("use_template", False),
+                    "formatting_mode": meta.get("formatting_mode", "raw"),
+                    "template_category": meta.get("template_category", ""),
+                    "template_name": meta.get("template_name", ""),
+                    "template_path": meta.get("template_path", ""),
+                    "template_display": meta.get("template_display", "未记录模板"),
                 }
             )
 
@@ -107,6 +114,7 @@ async def delete_article(article_path: str):
     file_path = Path(article_path)
     if file_path.exists():
         file_path.unlink()
+        utils.delete_article_sidecars(article_path)
         return {"status": "success", "message": "文章已删除"}
     raise HTTPException(status_code=404, detail="文章不存在")
 

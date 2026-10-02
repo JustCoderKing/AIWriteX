@@ -66,6 +66,7 @@ class AgentFactory:
             "memory": config.memory,
             "max_rpm": config.max_rpm,
             "verbose": config.verbose,
+            "max_iter": getattr(config, "max_iter", 8),
         }
 
         # 添加模板支持

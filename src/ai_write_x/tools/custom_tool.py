@@ -2,6 +2,7 @@ import os
 import glob
 import random
 import sys
+from pathlib import Path
 from typing import List, Type
 
 from crewai.tools import BaseTool
@@ -92,6 +93,21 @@ class ReadTemplateTool(BaseTool):
             config.use_compress,
         )
 
+        selected_path = Path(selected_template_file)
+        template_name = selected_path.stem
+        template_category = selected_path.parent.name
+        try:
+            template_rel = str(selected_path.relative_to(Path(template_dir_abs))).replace("\\", "/")
+        except ValueError:
+            template_rel = f"{template_category}/{selected_path.name}"
+
+        config.last_used_template = {
+            "category": template_category,
+            "name": template_name,
+            "path": template_rel,
+        }
+        config.last_formatting_mode = "template"
+        log.print_log(f"使用模板: {template_category}/{template_name}")
         log.print_log("模板填充适配处理比较耗时，请耐心等待...")
         return f"""
         【HTML模板 - 必须作为最终输出的基础】
@@ -134,7 +150,12 @@ class AIForgeSearchTool(BaseTool):
     """AIForge搜索工具"""
 
     name: str = "aiforge_search_tool"
-    description: str = "搜索关于特定主题的最新信息、数据和趋势。"
+    description: str = (
+        "搜索关于特定主题的最新信息、数据和趋势。"
+        "每个任务最多调用一次；Action Input 必须是单个 JSON 对象"
+        '（形如 {"topic":"...","urls":[],"reference_ratio":0.0}），不能是数组。'
+        "拿到搜索结果后应立即撰写文章，不要用相同参数再次调用本工具。"
+    )
 
     args_schema: type[BaseModel] = AIForgeSearchToolInput
 
@@ -185,21 +206,23 @@ class AIForgeSearchTool(BaseTool):
             # 根据模式过滤掉相应字段为空的条目
             filtered_results = []
             for result in results:
-                title = result.get("title", "").strip()
+                normalized = self._normalize_search_item(result)
+                title = normalized.get("title", "").strip()
 
                 # 根据模式判断不同的内容字段
                 if len(urls) > 0:
                     # 借鉴模式：检查content字段
-                    content_field = result.get("content", "").strip()
+                    content_field = normalized.get("content", "").strip()
                 else:
-                    # 搜索模式：检查abstract字段
+                    # 搜索模式：摘要优先，其次正文类字段
                     content_field = (
-                        result.get("abstract", "").strip() or result.get("content", "").strip()
+                        normalized.get("abstract", "").strip()
+                        or normalized.get("content", "").strip()
                     )
 
                 # 如果标题和对应的内容字段都不为空，则保留该条目
                 if title and content_field:
-                    filtered_results.append(result)
+                    filtered_results.append(normalized)
 
             if filtered_results:
                 if len(urls) > 0:
@@ -233,11 +256,66 @@ class AIForgeSearchTool(BaseTool):
                             content = content[:500] + "..."
                         formatted += f"**内容**: {content}...\n"
                     formatted += "\n"
+
+                log.print_log(
+                    f"搜索结果可用 {len(filtered_results)}/{len(results)} 条（已过滤空标题或空摘要）"
+                )
                 return formatted
             else:
+                log.print_log(
+                    f"搜索返回了 {len(results)} 条原始结果，但标题/摘要字段为空，已全部过滤",
+                    "warning",
+                )
                 return f"未能找到关于'{topic}'的有效{source_type}结果。"
         else:
             return f"未能找到关于'{topic}'的{source_type}结果。"
+
+    def _normalize_search_item(self, item: dict) -> dict:
+        """统一搜索结果字段，兼容 snippet/summary 等常见别名。"""
+        if not isinstance(item, dict):
+            return {}
+
+        normalized = dict(item)
+
+        title = (
+            normalized.get("title")
+            or normalized.get("name")
+            or normalized.get("标题")
+            or ""
+        )
+        abstract = (
+            normalized.get("abstract")
+            or normalized.get("snippet")
+            or normalized.get("summary")
+            or normalized.get("desc")
+            or normalized.get("description")
+            or normalized.get("content")
+            or normalized.get("摘要")
+            or ""
+        )
+        url = (
+            normalized.get("url")
+            or normalized.get("link")
+            or normalized.get("href")
+            or normalized.get("链接")
+            or ""
+        )
+        pub_time = (
+            normalized.get("pub_time")
+            or normalized.get("publish_time")
+            or normalized.get("time")
+            or normalized.get("date")
+            or normalized.get("发布时间")
+            or ""
+        )
+
+        normalized["title"] = str(title).strip() if title is not None else ""
+        normalized["abstract"] = str(abstract).strip() if abstract is not None else ""
+        normalized["url"] = str(url).strip() if url is not None else ""
+        normalized["pub_time"] = str(pub_time).strip() if pub_time is not None else ""
+        if "content" in normalized and normalized["content"] is not None:
+            normalized["content"] = str(normalized["content"]).strip()
+        return normalized
 
     def _excute_search(self, topic, max_results, min_results, aiforge_api_key):
         try:
@@ -252,11 +330,79 @@ class AIForgeSearchTool(BaseTool):
             results = AIForgeEngine(config_file=Config.get_instance().config_aiforge_path)(
                 f"搜索{min_results}条'{topic}'的新闻"
             )
+            raw_data = getattr(results, "data", None)
+            if raw_data is None and isinstance(results, str):
+                raw_data = results
+            if isinstance(results, dict) and raw_data is None:
+                raw_data = results.get("data")
+
+            if not raw_data:
+                log.print_log("AIForge 未返回搜索数据", "warning")
+                return None
+
+            # AIForge 偶发直接返回字符串（错误/摘要），尽量解析，否则记警告后放弃
+            if isinstance(raw_data, str):
+                text = raw_data.strip()
+                parsed = None
+                if text.startswith("{") or text.startswith("["):
+                    try:
+                        import json
+
+                        parsed = json.loads(text)
+                    except Exception:
+                        parsed = None
+                if isinstance(parsed, dict):
+                    raw_data = parsed.get("data") or parsed.get("results") or [parsed]
+                elif isinstance(parsed, list):
+                    raw_data = parsed
+                else:
+                    log.print_log(
+                        f"AIForge 返回字符串而非结果列表，前120字: {text[:120]}",
+                        "warning",
+                    )
+                    return None
+
+            if not isinstance(raw_data, list):
+                log.print_log(f"AIForge 返回数据类型异常: {type(raw_data)}", "warning")
+                return None
+
+            # 先把 snippet/summary 等别名归一成 abstract，避免后续字段映射丢掉原文摘要
+            pre_normalized = [
+                self._normalize_search_item(item) for item in raw_data if isinstance(item, dict)
+            ]
+
             # 因为没输出格式要求，这里需要获取到后进行映射
-            # 即使指定也不一定能保证，所以最好固定进行映射
-            return AIForgeEngine.map_result_to_format(
-                results.data, ["title", "abstract", "url", "pub_time"]  # type: ignore
-            )[:max_results]
+            mapped = AIForgeEngine.map_result_to_format(
+                pre_normalized, ["title", "abstract", "url", "pub_time"]  # type: ignore
+            )
+            if not isinstance(mapped, list):
+                mapped = pre_normalized
+
+            # 再归一化一次，并按索引回填被映射清空的摘要
+            normalized = []
+            for idx, item in enumerate(mapped):
+                merged = self._normalize_search_item(item)
+                if not merged.get("abstract") and idx < len(pre_normalized):
+                    merged["abstract"] = pre_normalized[idx].get("abstract", "")
+                if not merged.get("title") and idx < len(pre_normalized):
+                    merged["title"] = pre_normalized[idx].get("title", "")
+                if not merged.get("url") and idx < len(pre_normalized):
+                    merged["url"] = pre_normalized[idx].get("url", "")
+                if merged.get("title") and merged.get("abstract"):
+                    normalized.append(merged)
+
+            log.print_log(
+                f"搜索字段规范化后可用结果：{len(normalized)}/{len(pre_normalized)}"
+            )
+            for i, item in enumerate(normalized[:max_results], 1):
+                title = (item.get("title") or "")[:60]
+                abs_len = len((item.get("abstract") or "").strip())
+                pub = item.get("pub_time") or "无时间"
+                url = (item.get("url") or "")[:80]
+                log.print_log(
+                    f"搜索结果[{i}] 标题={title} | 摘要={abs_len}字 | 时间={pub} | url={url}"
+                )
+            return normalized[:max_results]
         except Exception as e:
             log.print_traceback("搜索过程中发生错误：", e)
             return None

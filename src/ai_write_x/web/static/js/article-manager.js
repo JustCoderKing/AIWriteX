@@ -192,6 +192,12 @@ class ArticleManager {
             'failed': '发布失败',  
             'unpublished': '未发布'  
         }[article.status] || '未发布';  
+
+        const templateDisplay = article.template_display || '未记录模板';
+        const templateMode = article.formatting_mode || 'raw';
+        const templateTitle = article.template_path
+            ? `模板路径: ${article.template_path}`
+            : (templateMode === 'design' ? '未使用本地模板，由 AI 直接排版' : '未记录或未使用模板');
         
         // 时间格式化函数  
         const formatTime = (timeStr) => {  
@@ -221,6 +227,8 @@ class ArticleManager {
                 <h4 class="card-title" title="${this.escapeHtml(article.title)}">${this.escapeHtml(article.title)}</h4>  
                 <div class="card-meta">  
                     <span class="format-badge">${article.format}</span>  
+                    <span class="meta-divider">•</span>  
+                    <span class="template-badge template-${this.escapeHtml(templateMode)}" title="${this.escapeHtml(templateTitle)}">${this.escapeHtml(templateDisplay)}</span>
                     <span class="meta-divider">•</span>  
                     <span class="status-badge ${statusClass}"     
                         data-article-path="${article.path}"    

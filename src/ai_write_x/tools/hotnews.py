@@ -38,6 +38,22 @@ ZHIWEI_PLATFORMS = [p["zhiwei_id"] for p in PLATFORMS if p["zhiwei_id"]]
 # tophub 支持的平台
 TOPHUB_PLATFORMS = [p["tophub_id"] for p in PLATFORMS if p["tophub_id"]]
 
+# 配置里的平台名和热榜站点上的展示名不一致时，用别名匹配
+PLATFORM_NAME_ALIASES = {
+    "百度热点": {"百度热点", "百度"},
+    "知乎热榜": {"知乎热榜", "知乎"},
+    "虎扑": {"虎扑", "虎扑社区"},
+    "豆瓣小组": {"豆瓣小组", "豆瓣", "豆瓣电影"},
+    "澎湃新闻": {"澎湃新闻", "澎湃"},
+    "今日头条": {"今日头条", "头条"},
+}
+
+
+def _platform_match_names(platform: str) -> set:
+    names = {platform}
+    names.update(PLATFORM_NAME_ALIASES.get(platform, set()))
+    return names
+
 
 def get_zhiwei_hotnews(platform: str) -> Optional[List[Dict]]:
     """
@@ -66,7 +82,8 @@ def get_zhiwei_hotnews(platform: str) -> Optional[List[Dict]]:
                 for item in data["data"]
             ]
         return None
-    except Exception as e:  # noqa 841
+    except Exception as e:
+        log.print_log(f"知微热榜请求失败({platform}): {e}", "warning")
         return None
 
 
@@ -89,9 +106,11 @@ def get_tophub_hotnews(platform: str, cnt: int = 10) -> Optional[List[Dict]]:
         soup = BeautifulSoup(response.text, "html.parser")
         platform_divs = soup.find_all("div", class_="cc-cd")
 
+        match_names = _platform_match_names(platform)
         for div in platform_divs:
-            platform_span = div.find("div", class_="cc-cd-lb").find("span")  # type: ignore
-            if platform_span and platform_span.text.strip() == platform:  # type: ignore
+            platform_label = div.find("div", class_="cc-cd-lb")
+            platform_span = platform_label.find("span") if platform_label else None
+            if platform_span and platform_span.text.strip() in match_names:
                 news_items = div.find_all("div", class_="cc-cd-cb-ll")[:cnt]  # type: ignore
                 hotnews = []
                 for item in news_items:
@@ -109,7 +128,8 @@ def get_tophub_hotnews(platform: str, cnt: int = 10) -> Optional[List[Dict]]:
                     )
                 return hotnews
         return None
-    except Exception as e:  # noqa 841
+    except Exception as e:
+        log.print_log(f"tophub 热榜请求失败({platform}): {e}", "warning")
         return None
 
 
@@ -127,7 +147,8 @@ def get_vvhan_hotnews() -> Optional[List[Dict]]:
         if data.get("success") and isinstance(data.get("data"), list):
             return data["data"]
         return None
-    except Exception as e:  # noqa 841
+    except Exception as e:
+        log.print_log(f"vvhan 热榜请求失败: {e}", "warning")
         return None
 
 
@@ -161,8 +182,12 @@ def get_platform_news(platform: str, cnt: int = 10) -> List[str]:
     if not hotnews:
         return []
 
-    platform_data = next((pf["data"] for pf in hotnews if pf["name"] == platform), [])
-    return [item["title"] for item in platform_data[:cnt]]
+    match_names = _platform_match_names(platform)
+    platform_data = next(
+        (pf.get("data") or [] for pf in hotnews if pf.get("name") in match_names),
+        [],
+    )
+    return [item["title"] for item in platform_data[:cnt] if item.get("title")]
 
 
 def select_platform_topic(platform: Any, cnt: int = 10) -> str:

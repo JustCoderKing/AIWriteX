@@ -2782,9 +2782,21 @@ class AIWriteXConfigManager {
         container.innerHTML = '';  
         
         // 获取所有LLM提供商  
+        const providerDisplayMap = {
+            openrouter: 'OpenRouter',
+            deepseek: 'DeepSeek',
+            grok: 'Grok',
+            qwen: '通义千问',
+            gemini: 'Gemini',
+            ollama: 'Ollama',
+            claude: 'Claude',
+            cohere: 'Cohere',
+            mistral: 'Mistral',
+            minimax: 'MiniMax',
+        };
         const providers = Object.keys(aiforgeConfig.llm).map(key => ({  
             key: key,  
-            display: key.charAt(0).toUpperCase() + key.slice(1)  
+            display: providerDisplayMap[key] || (key.charAt(0).toUpperCase() + key.slice(1))
         }));  
         
         // 为每个提供商生成卡片  
