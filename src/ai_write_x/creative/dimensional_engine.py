@@ -155,50 +155,41 @@ class DimensionalCreativeEngine:
                     if selected_count >= max_dimensions:
                         break
         else:
-            # 手动选择维度（从配置中获取用户选择的维度）：受enabled_dimensions限制
-            selected_dims = self.config.get("selected_dimensions", [])
-            compatibility_threshold = self.config.get("compatibility_threshold", 0.6)
-
-            # 先收集所有手动选择的维度
-            candidate_dimensions = []
-            for dim_info in selected_dims:
-                category = dim_info.get("category")
-                option_name = dim_info.get("option")
-                # 检查维度是否启用（手动选择模式下需要检查）
-                enabled_dimensions = self.config.get("enabled_dimensions", {})
-                if category and option_name and enabled_dimensions.get(category, True):
-                    # 特殊处理自定义选项
-                    if option_name == "custom":
-                        # 获取自定义输入
-                        dimension_config = self.dimension_config.get(category, {})
-                        custom_input = dimension_config.get("custom_input", "")
-                        if custom_input:
-                            custom_option = {
-                                "name": "custom",
-                                "value": custom_input,
-                                "weight": 1.0,
-                                "description": "用户自定义",
-                            }
-                            candidate_dimensions.append((category, custom_option))
-                    else:
-                        options = self.get_dimension_options(category, ignore_enabled_filter=False)
-                        for option in options:
-                            if option.get("name") == option_name:
-                                candidate_dimensions.append((category, option))
-                                break
-
-            # 按照兼容性阈值过滤维度组合
-            # 逐个添加维度并检查兼容性
-            for category, option in candidate_dimensions:
-                # 创建临时维度组合来测试兼容性
-                temp_dimensions = selected_dimensions + [(category, option)]
-                compatibility_score = self.validate_dimension_compatibility(temp_dimensions)
-
-                # 如果兼容性分数满足阈值要求，则添加到选中列表
-                if compatibility_score > compatibility_threshold:
+            # 使用系统设置里勾选并选定的维度，不再随机抽取
+            enabled_dimensions = self.config.get("enabled_dimensions", {})
+            for category, enabled in enabled_dimensions.items():
+                if not enabled:
+                    continue
+                option = self._resolve_configured_option(category)
+                if option:
                     selected_dimensions.append((category, option))
 
         return selected_dimensions
+
+    def _resolve_configured_option(self, category: str):
+        """把界面上的选项解析成创意变换使用的维度。未指定具体选项时，只在该维度内随机。"""
+        dimension_config = self.dimension_config.get(category, {})
+        option_name = str(dimension_config.get("selected_option") or "").strip()
+        if option_name == "custom":
+            custom_input = str(dimension_config.get("custom_input") or "").strip()
+            if not custom_input:
+                return None
+            return {
+                "name": "custom",
+                "value": custom_input,
+                "weight": 1.0,
+                "description": "用户自定义",
+            }
+
+        options = self.get_dimension_options(category, ignore_enabled_filter=False)
+        if option_name:
+            for option in options:
+                if option.get("name") == option_name:
+                    return option
+            return None
+        if options:
+            return random.choice(options)
+        return None
 
     def generate_creative_prompt(
         self, base_content: str, selected_dimensions: List[Tuple[str, Dict[str, Any]]]

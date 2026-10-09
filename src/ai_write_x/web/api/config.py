@@ -23,6 +23,15 @@ class ConfigUpdateRequest(BaseModel):
     config_data: Dict[str, Any]
 
 
+class SearchTrialRequest(BaseModel):
+    site_id: str
+    topic: str
+
+
+class TrackRecommendRequest(BaseModel):
+    tracks: list
+
+
 @router.get("/")
 async def get_config():
     """获取当前配置"""
@@ -42,6 +51,7 @@ async def get_config():
             "use_compress": config_dict.get("use_compress", True),
             "aiforge_search_max_results": config_dict.get("aiforge_search_max_results", 10),
             "aiforge_search_min_results": config_dict.get("aiforge_search_min_results", 1),
+            "search_sites": config.search_sites,
             "min_article_len": config_dict.get("min_article_len", 1000),
             "max_article_len": config_dict.get("max_article_len", 2000),
             "auto_publish": config_dict.get("auto_publish", False),
@@ -101,6 +111,53 @@ async def save_config_to_file():
     except Exception as e:
         log.print_log(f"保存配置失败: {str(e)}", "error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/search-trial")
+async def search_trial(request: SearchTrialRequest):
+    """试搜一个网站。结果只返回给界面，不保存，也不进入写作。"""
+    topic = (request.topic or "").strip()
+    site_id = (request.site_id or "").strip()
+    if not topic:
+        raise HTTPException(status_code=400, detail="请输入试搜话题")
+    if not site_id:
+        raise HTTPException(status_code=400, detail="请选择搜索网站")
+
+    config = Config.get_instance()
+    site = next((item for item in config.search_sites if item.get("id") == site_id), None)
+    if not site:
+        raise HTTPException(status_code=404, detail="搜索网站不存在，请先保存设置")
+
+    from src.ai_write_x.tools.search_template import search_one_site
+
+    payload = search_one_site(site, topic)
+    return {"status": "success", "data": payload}
+
+
+@router.get("/track-presets")
+async def get_track_presets():
+    """账号赛道列表，供创意设置勾选。"""
+    from src.ai_write_x.creative.track_presets import ACCOUNT_TRACKS, list_track_catalog
+
+    return {
+        "status": "success",
+        "data": {
+            "tracks": list(ACCOUNT_TRACKS),
+            "catalog": list_track_catalog(),
+        },
+    }
+
+
+@router.post("/track-recommend")
+async def track_recommend(request: TrackRecommendRequest):
+    """按主/辅赛道合并创意推荐，不写入配置。"""
+    from src.ai_write_x.creative.track_presets import merge_track_recommendations
+
+    try:
+        data = merge_track_recommendations(request.tracks)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "success", "data": data}
 
 
 @router.get("/default")

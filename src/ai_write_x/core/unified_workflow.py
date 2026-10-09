@@ -65,6 +65,10 @@ class UnifiedContentWorkflow:
     urls={{urls}}
     reference_ratio={{reference_ratio}}
 
+输出格式（必须遵守）：
+- 需要工具时，只输出 Action 和 Action Input，禁止同时输出 Final Answer
+- 工具已经返回后，只输出 Final Answer，禁止再输出 Action
+
 执行步骤：
 1. 使用 aiforge_search_tool 获取关于'{{topic}}'的最新信息（最多成功调用 1 次）
 2. 根据搜索结果的来源类型调整写作策略：
@@ -338,6 +342,10 @@ class UnifiedContentWorkflow:
 **文章标题：**
 {{title}}
 
+## 输出格式（必须遵守）
+- 需要读取模板时，只输出 Action 和 Action Input，禁止同时输出 Final Answer
+- 模板内容已经返回后，只输出 Final Answer，禁止再输出 Action
+
 ## 执行步骤
 1. 首先使用 read_template_tool 读取HTML模板
 2. 分析模板的结构、样式和布局特点
@@ -380,6 +388,7 @@ class UnifiedContentWorkflow:
                 goal="根据文章内容，适当调整给定的HTML模板，去除原有内容，并填充新内容。",
                 backstory=backstory,
                 tools=["ReadTemplateTool"],
+                max_iter=6,
             )
         ]
 

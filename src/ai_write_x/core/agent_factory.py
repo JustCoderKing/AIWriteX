@@ -34,7 +34,11 @@ class AgentFactory:
             if cache_key not in self._llm_cache:
                 if config.api_key:
                     self._llm_cache[cache_key] = LLM(
-                        model=config.api_model, api_key=config.api_key, max_tokens=8192
+                        model=config.api_model,
+                        api_key=config.api_key,
+                        base_url=config.api_apibase or None,
+                        max_tokens=8192,
+                        timeout=300,
                     )
                 else:
                     return None

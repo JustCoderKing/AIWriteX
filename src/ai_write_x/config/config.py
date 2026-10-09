@@ -62,17 +62,17 @@ class Config:
         # 默认配置
         self.default_config = {
             "platforms": [
-                {"name": "微博", "weight": 0.3, "enabled": True},
-                {"name": "抖音", "weight": 0.2, "enabled": True},
-                {"name": "小红书", "weight": 0.12, "enabled": True},
-                {"name": "今日头条", "weight": 0.1, "enabled": True},
-                {"name": "百度热点", "weight": 0.08, "enabled": True},
-                {"name": "哔哩哔哩", "weight": 0.06, "enabled": True},
-                {"name": "快手", "weight": 0.05, "enabled": True},
-                {"name": "虎扑", "weight": 0.05, "enabled": True},
-                {"name": "豆瓣小组", "weight": 0.02, "enabled": True},
-                {"name": "澎湃新闻", "weight": 0.01, "enabled": True},
-                {"name": "知乎热榜", "weight": 0.01, "enabled": True},
+                {"name": "微博", "weight": 0.3, "enabled": True, "fetch_count": 1},
+                {"name": "抖音", "weight": 0.2, "enabled": True, "fetch_count": 1},
+                {"name": "小红书", "weight": 0.12, "enabled": True, "fetch_count": 1},
+                {"name": "今日头条", "weight": 0.1, "enabled": True, "fetch_count": 1},
+                {"name": "百度热点", "weight": 0.08, "enabled": True, "fetch_count": 1},
+                {"name": "哔哩哔哩", "weight": 0.06, "enabled": True, "fetch_count": 1},
+                {"name": "快手", "weight": 0.05, "enabled": True, "fetch_count": 1},
+                {"name": "虎扑", "weight": 0.05, "enabled": True, "fetch_count": 1},
+                {"name": "豆瓣小组", "weight": 0.02, "enabled": True, "fetch_count": 1},
+                {"name": "澎湃新闻", "weight": 0.01, "enabled": True, "fetch_count": 1},
+                {"name": "知乎热榜", "weight": 0.01, "enabled": True, "fetch_count": 1},
             ],
             "publish_platform": "wechat",
             "wechat": {
@@ -236,6 +236,12 @@ class Config:
             "use_compress": True,
             "aiforge_search_max_results": 10,
             "aiforge_search_min_results": 1,
+            "search_sites": [
+                {"id": "baidu", "name": "百度", "enabled": True, "count": 3, "builtin": True},
+                {"id": "sogou", "name": "搜狗", "enabled": True, "count": 3, "builtin": True},
+                {"id": "360", "name": "360", "enabled": True, "count": 3, "builtin": True},
+                {"id": "bing", "name": "必应", "enabled": True, "count": 3, "builtin": True},
+            ],
             "min_article_len": 1000,
             "max_article_len": 2000,
             "auto_publish": False,
@@ -247,7 +253,8 @@ class Config:
                 "creative_intensity": 1.0,
                 "preserve_core_info": True,
                 "allow_experimental": False,
-                "auto_dimension_selection": True,
+                "auto_dimension_selection": False,
+                "account_tracks": {"primary": "", "secondary": ""},
                 "selected_dimensions": [],
                 "priority_categories": ["emotion", "audience", "style", "theme"],
                 "max_dimensions": 5,
@@ -1499,6 +1506,7 @@ class Config:
         # 最近一次生成实际选用的模板（运行时字段，不写入 config.yaml）
         self.last_used_template = None
         self.last_formatting_mode = "raw"
+        self.forced_template_file = None
 
         self._license_edition = "basic"  # 默认基础版
         self._license_custom_features = []
@@ -1645,6 +1653,17 @@ class Config:
             if not self.config:
                 raise ValueError("配置未加载")
             return self.config["aiforge_search_min_results"]
+
+    @property
+    def search_sites(self):
+        """写作使用的搜索站。缺省时回落到四个默认站。"""
+        with self._lock:
+            raw_sites = []
+            if self.config:
+                raw_sites = self.config.get("search_sites") or []
+        from src.ai_write_x.tools.search_template import normalize_search_sites
+
+        return normalize_search_sites(raw_sites)
 
     @property
     def min_article_len(self):

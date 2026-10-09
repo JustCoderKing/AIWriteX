@@ -85,6 +85,57 @@
     border-radius: 8px;      
     padding: 20px;      
     margin-bottom: 20px;      
+}
+
+.search-sites-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.search-site-row,
+.search-site-add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.search-site-row {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-site-name {
+    min-width: 64px;
+    font-weight: 500;
+}
+
+.search-site-add .form-control,
+.search-site-row .form-control {
+    width: auto;
+    min-width: 88px;
+    flex: 1 1 140px;
+}
+
+.search-site-count,
+#new-search-site-count {
+    flex: 0 0 72px;
+    min-width: 72px;
+}
+
+.search-site-row.is-disabled .search-site-name {
+    color: var(--text-secondary);
+}
+
+.search-trial-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-trial-item p {
+    margin: 4px 0;
 } 
 
 #config-platforms .config-section {  
@@ -329,9 +380,13 @@
 }  
   
 .platform-table .col-weight {  
-    width: 250px;  
-}  
-  
+    width: 160px;  
+}
+
+.platform-table .col-fetch-count {
+    width: 120px;
+}
+
 .platform-table .col-description {  
     width: auto;  
     min-width: 250px;  
@@ -375,7 +430,8 @@
 }  
   
 /* 平台权重输入框 */  
-.platform-table .platform-weight-input {  
+.platform-table .platform-weight-input,
+.platform-table .platform-fetch-count-input {  
     width: 120px;  
     padding: 8px 12px;  
     border: 1px solid var(--border-color);  
@@ -386,13 +442,15 @@
     transition: border-color 0.2s;  
 }  
   
-.platform-table .platform-weight-input:focus {  
+.platform-table .platform-weight-input:focus,
+.platform-table .platform-fetch-count-input:focus {  
     outline: none;  
     border-color: var(--primary-color);  
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);  
 }  
   
-.platform-table .platform-weight-input:disabled {  
+.platform-table .platform-weight-input:disabled,
+.platform-table .platform-fetch-count-input:disabled {  
     background: var(--surface-color);  
     cursor: not-allowed;  
     opacity: 0.6;  
@@ -897,6 +955,66 @@ select.form-control {
     .form-group-third {  
         flex: 0 0 100%; /* 小屏幕显示一列 */  
     }  
+}
+
+.account-track-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.account-track-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    background: var(--background-color);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    user-select: none;
+}
+
+.account-track-chip input {
+    display: none;
+}
+
+.account-track-chip.is-selected {
+    border-color: var(--primary-color);
+    background: var(--surface-color);
+    color: var(--primary-color);
+}
+
+.account-track-chip .track-role {
+    font-size: 11px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--primary-color);
+    color: #fff;
+}
+
+.account-track-conflicts {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.account-track-conflict-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.dimension-conflict-hint {
+    flex: 0 0 100%;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
 }
 
 /* ========== 维度分组卡片 ========== */  

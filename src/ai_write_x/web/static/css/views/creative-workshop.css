@@ -1,4 +1,72 @@
 /* ========== 容器布局 ========== */  
+.hot-topic-dialog,
+.task-creative-dialog {
+    width: min(760px, calc(100vw - 32px));
+    max-width: 760px;
+}
+
+.hot-topic-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.hot-topic-row.is-selected {
+    background: var(--surface-color);
+}
+
+.hot-topic-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.hot-topic-platform {
+    width: 72px;
+    flex: none;
+}
+
+.hot-topic-rank {
+    width: 28px;
+    flex: none;
+}
+
+.hot-topic-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.hot-topic-heat {
+    width: 72px;
+    flex: none;
+    color: var(--text-secondary);
+}
+
+.task-creative-dialog .dialog-body {
+    max-height: 70vh;
+    overflow: auto;
+}
+
+.task-creative-group {
+    margin-top: 12px;
+}
+
+.task-creative-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.task-creative-row .form-control {
+    flex: 1 1 140px;
+}
+
 #creative-workshop-view {  
     height: 100%;  
     display: flex;  

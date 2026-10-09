@@ -4,6 +4,7 @@ import warnings
 import multiprocessing
 import signal
 import time
+import copy
 import json
 
 from src.ai_write_x.utils.path_manager import PathManager
@@ -172,9 +173,14 @@ def ai_write_x_run(config_data=None):
     if config_data:
         try:
             log_queue = multiprocessing.Queue()
+            base_config = copy.deepcopy(config.get_config())
+            task_creative = (config_data or {}).get("task_creative")
+            if isinstance(task_creative, dict) and task_creative:
+                base_config["dimensional_creative"] = task_creative
+                log.print_log("本次任务使用单独的创意设置", "info")
             process = multiprocessing.Process(
                 target=run_crew_in_process,
-                args=(inputs, log_queue, config.get_config(), config.aiforge_config, config_data),
+                args=(inputs, log_queue, base_config, config.aiforge_config, config_data),
                 daemon=False,
             )
             return process, log_queue

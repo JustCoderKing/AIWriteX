@@ -152,6 +152,54 @@ def get_vvhan_hotnews() -> Optional[List[Dict]]:
         return None
 
 
+def _normalize_hot_item(item: Dict, index: int) -> Optional[Dict]:
+    name = str(item.get("name") or item.get("title") or "").replace("|", "——").strip()
+    if not name:
+        return None
+    heat = item.get("lastCount", item.get("hot", item.get("heat", "")))
+    rank = item.get("rank") or index + 1
+    return {
+        "name": name,
+        "rank": rank,
+        "heat": "" if heat is None else str(heat),
+        "url": str(item.get("url") or item.get("link") or ""),
+    }
+
+
+def get_platform_hot_items(platform: str, cnt: int = 5) -> List[Dict]:
+    """获取指定平台的热搜条目，包含话题、排名和热度。"""
+    platform_info = next((p for p in PLATFORMS if p["name"] == platform), None)
+    if not platform_info:
+        return []
+
+    raw_items = None
+    if platform_info["zhiwei_id"] in ZHIWEI_PLATFORMS:
+        raw_items = get_zhiwei_hotnews(platform_info["zhiwei_id"])
+
+    if not raw_items and platform_info["tophub_id"] in TOPHUB_PLATFORMS:
+        raw_items = get_tophub_hotnews(platform, cnt)
+
+    if not raw_items:
+        hotnews = get_vvhan_hotnews()
+        if hotnews:
+            match_names = _platform_match_names(platform)
+            raw_items = next(
+                (pf.get("data") or [] for pf in hotnews if pf.get("name") in match_names),
+                [],
+            )
+
+    items = []
+    for index, item in enumerate(raw_items or []):
+        if not isinstance(item, dict):
+            continue
+        normalized = _normalize_hot_item(item, index)
+        if normalized:
+            items.append(normalized)
+        if len(items) >= cnt:
+            break
+    return items
+
+
 def get_platform_news(platform: str, cnt: int = 10) -> List[str]:
     """
     获取指定平台的新闻标题，优先从知微数据获取，失败则从 tophub.today 获取，最后从 vvhan 获取
@@ -159,35 +207,7 @@ def get_platform_news(platform: str, cnt: int = 10) -> List[str]:
     参数 cnt: 返回的新闻数量
     返回: 新闻标题列表（仅使用 name 字段）
     """
-    # 查找平台对应的知微数据标识和 tophub 标识
-    platform_info = next((p for p in PLATFORMS if p["name"] == platform), None)
-    if not platform_info:
-        return []
-
-    # 1. 优先尝试知微数据
-
-    if platform_info["zhiwei_id"] in ZHIWEI_PLATFORMS:
-        hotnews = get_zhiwei_hotnews(platform_info["zhiwei_id"])
-        if hotnews:
-            return [item.get("name", "") for item in hotnews[:cnt] if item.get("name")]
-
-    # 2. 回退到 tophub.today
-    if platform_info["tophub_id"] in TOPHUB_PLATFORMS:
-        hotnews = get_tophub_hotnews(platform, cnt)
-        if hotnews:
-            return [item.get("name", "") for item in hotnews[:cnt] if item.get("name")]
-
-    # 3. 回退到 vvhan API
-    hotnews = get_vvhan_hotnews()
-    if not hotnews:
-        return []
-
-    match_names = _platform_match_names(platform)
-    platform_data = next(
-        (pf.get("data") or [] for pf in hotnews if pf.get("name") in match_names),
-        [],
-    )
-    return [item["title"] for item in platform_data[:cnt] if item.get("title")]
+    return [item["name"] for item in get_platform_hot_items(platform, cnt)]
 
 
 def select_platform_topic(platform: Any, cnt: int = 10) -> str:

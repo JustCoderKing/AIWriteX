@@ -36,7 +36,10 @@ class AIWriteXConfigManager {
 
         this.apiEndpoint = '/api/config';    
         this.config = {};    
-        this.uiConfig = this.loadUIConfig();    
+        this.uiConfig = this.loadUIConfig();
+        this.accountTrackNames = [];
+        this.selectedTracks = [];
+        this.trackConflicts = [];
           
         this.currentPanel = 'ui';  
         this.init();   
@@ -311,22 +314,13 @@ class AIWriteXConfigManager {
             });  
         }  
         
-        // 最大搜索结果  
-        const maxSearchResultsInput = document.getElementById('max-search-results');  
-        if (maxSearchResultsInput) {  
-            maxSearchResultsInput.addEventListener('change', async (e) => {  
-                await this.updateConfig({ aiforge_search_max_results: parseInt(e.target.value) });  
-            });  
-        }  
-        
-        // 最小搜索结果  
-        const minSearchResultsInput = document.getElementById('min-search-results');  
-        if (minSearchResultsInput) {  
-            minSearchResultsInput.addEventListener('change', async (e) => {  
-                await this.updateConfig({ aiforge_search_min_results: parseInt(e.target.value) });  
-            });  
-        }  
-        
+        const searchSitesBlock = document.querySelector('.search-sites-block');
+        if (searchSitesBlock && !searchSitesBlock.dataset.bound) {
+            searchSitesBlock.dataset.bound = '1';
+            searchSitesBlock.addEventListener('click', (e) => this.onSearchSiteClick(e));
+            searchSitesBlock.addEventListener('change', (e) => this.onSearchSiteChange(e));
+        }
+
         // 最小文章字数  
         const minArticleLenInput = document.getElementById('min-article-len');  
         if (minArticleLenInput) {  
@@ -764,6 +758,13 @@ class AIWriteXConfigManager {
             });    
         }
 
+        const applyTrackRecommendBtn = document.getElementById('apply-track-recommend');
+        if (applyTrackRecommendBtn) {
+            applyTrackRecommendBtn.addEventListener('click', async () => {
+                await this.applyTrackRecommendation();
+            });
+        }
+
         // 保存创意配置按钮  
         const saveCreativeConfigBtn = document.getElementById('save-creative-config');  
         if (saveCreativeConfigBtn) {  
@@ -1110,17 +1111,8 @@ class AIWriteXConfigManager {
             templateSelect.disabled = !this.config.use_template;
         }    
         
-        // ========== 6. 填充搜索数量配置 ==========  
-        const maxSearchResultsInput = document.getElementById('max-search-results');  
-        if (maxSearchResultsInput && this.config.aiforge_search_max_results !== undefined) {  
-            maxSearchResultsInput.value = this.config.aiforge_search_max_results;  
-        }  
-        
-        const minSearchResultsInput = document.getElementById('min-search-results');  
-        if (minSearchResultsInput && this.config.aiforge_search_min_results !== undefined) {  
-            minSearchResultsInput.value = this.config.aiforge_search_min_results;  
-        }  
-        
+        this.renderSearchSites();
+
         // ========== 7. 填充文章长度配置 ==========  
         const minArticleLenInput = document.getElementById('min-article-len');  
         if (minArticleLenInput && this.config.min_article_len !== undefined) {  
@@ -1170,8 +1162,8 @@ class AIWriteXConfigManager {
     // 填充热搜平台UI  
     populatePlatformsUI() {  
         const platformListBody = document.getElementById('platform-list-body');  
-        if (!platformListBody || !this.config.platforms) return;  
-        
+        if (!platformListBody || !this.config.platforms) return;
+
         // 清空现有内容  
         platformListBody.innerHTML = '';  
         
@@ -1219,7 +1211,23 @@ class AIWriteXConfigManager {
             weightInput.addEventListener('change', async (e) => {  
                 await this.updatePlatformWeight(index, parseFloat(e.target.value));  
             });  
-            weightCell.appendChild(weightInput);  
+            weightCell.appendChild(weightInput);
+
+            const countCell = document.createElement('td');
+            const countInput = document.createElement('input');
+            countInput.type = 'number';
+            countInput.className = 'platform-fetch-count-input';
+            countInput.value = platform.fetch_count ?? 1;
+            countInput.min = '0';
+            countInput.max = '10';
+            countInput.step = '1';
+            countInput.disabled = platform.enabled === false;
+            countInput.addEventListener('change', async (e) => {
+                const count = Math.min(10, Math.max(0, parseInt(e.target.value, 10) || 0));
+                e.target.value = count;
+                await this.updatePlatformFetchCount(index, count);
+            });
+            countCell.appendChild(countInput);
             
             // 说明列  
             const descCell = document.createElement('td');  
@@ -1229,7 +1237,8 @@ class AIWriteXConfigManager {
             // 组装行  
             row.appendChild(enabledCell);  
             row.appendChild(nameCell);  
-            row.appendChild(weightCell);  
+            row.appendChild(weightCell);
+            row.appendChild(countCell);
             row.appendChild(descCell);  
             
             platformListBody.appendChild(row);  
@@ -1652,7 +1661,11 @@ class AIWriteXConfigManager {
             const weightInput = row.querySelector('.platform-weight-input');  
             if (weightInput) {  
                 weightInput.disabled = !enabled;  
-            }  
+            }
+            const countInput = row.querySelector('.platform-fetch-count-input');
+            if (countInput) {
+                countInput.disabled = !enabled;
+            }
         }  
     }  
     
@@ -1662,7 +1675,13 @@ class AIWriteXConfigManager {
         platforms[index] = { ...platforms[index], weight };  
         
         await this.updateConfig({ platforms });  
-    }  
+    }
+
+    async updatePlatformFetchCount(index, fetchCount) {
+        const platforms = [...this.config.platforms];
+        platforms[index] = { ...platforms[index], fetch_count: fetchCount };
+        await this.updateConfig({ platforms });
+    }
     
     // 获取平台描述  
     getPlatformDescription(platformName) {  
@@ -2417,7 +2436,13 @@ class AIWriteXConfigManager {
                 const result = await categoriesResponse.json();  
                 this.templateCategories = result.data;  
                 this.populateTemplateCategoryOptions();  
-            }  
+            }
+
+            const tracksResponse = await fetch('/api/config/track-presets');
+            if (tracksResponse.ok) {
+                const result = await tracksResponse.json();
+                this.accountTrackNames = result.data?.tracks || [];
+            }
         } catch (error) {  
         }  
     }  
@@ -3001,6 +3026,173 @@ class AIWriteXConfigManager {
         });  
     }  
     
+    getAccountTrackSelection() {
+        return {
+            primary: this.selectedTracks[0] || '',
+            secondary: this.selectedTracks[1] || ''
+        };
+    }
+
+    populateAccountTracksUI() {
+        const container = document.getElementById('account-track-chips');
+        if (!container) return;
+        const names = this.accountTrackNames || [];
+        container.innerHTML = '';
+        names.forEach((name) => {
+            const chip = document.createElement('label');
+            const selectedIndex = this.selectedTracks.indexOf(name);
+            chip.className = `account-track-chip${selectedIndex >= 0 ? ' is-selected' : ''}`;
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = selectedIndex >= 0;
+            input.addEventListener('change', async (e) => {
+                e.preventDefault();
+                await this.toggleAccountTrack(name);
+            });
+            const text = document.createElement('span');
+            text.textContent = name;
+            chip.appendChild(input);
+            chip.appendChild(text);
+            if (selectedIndex === 0) {
+                const role = document.createElement('span');
+                role.className = 'track-role';
+                role.textContent = '主';
+                chip.appendChild(role);
+            } else if (selectedIndex === 1) {
+                const role = document.createElement('span');
+                role.className = 'track-role';
+                role.textContent = '辅';
+                chip.appendChild(role);
+            }
+            container.appendChild(chip);
+        });
+        this.updateAccountTrackSummary();
+        this.renderTrackConflicts();
+    }
+
+    updateAccountTrackSummary() {
+        const summary = document.getElementById('account-track-summary');
+        if (!summary) return;
+        if (!this.selectedTracks.length) {
+            summary.textContent = '未选择赛道';
+            return;
+        }
+        if (this.selectedTracks.length === 1) {
+            summary.textContent = `当前主赛道：${this.selectedTracks[0]}。点击「应用推荐」后写入下方维度。`;
+            return;
+        }
+        summary.textContent = `主赛道：${this.selectedTracks[0]}，辅赛道：${this.selectedTracks[1]}。冲突维度保留主赛道选项。`;
+    }
+
+    renderTrackConflicts() {
+        const box = document.getElementById('account-track-conflicts');
+        if (!box) return;
+        const conflicts = this.trackConflicts || [];
+        if (!conflicts.length) {
+            box.innerHTML = '';
+            return;
+        }
+        box.innerHTML = conflicts.map((item, index) => `
+            <div class="account-track-conflict-item">
+                <span>${item.dimension} 冲突：已用主赛道「${item.primary_option}」，辅赛道为「${item.secondary_option}」</span>
+                <button type="button" class="btn btn-secondary" data-conflict-index="${index}">改用辅赛道</button>
+            </div>
+        `).join('');
+        box.querySelectorAll('[data-conflict-index]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const index = parseInt(btn.getAttribute('data-conflict-index'), 10);
+                await this.applySecondaryConflictOption(conflicts[index]);
+            });
+        });
+    }
+
+    async toggleAccountTrack(name) {
+        const index = this.selectedTracks.indexOf(name);
+        if (index >= 0) {
+            this.selectedTracks.splice(index, 1);
+        } else if (this.selectedTracks.length >= 2) {
+            window.app?.showNotification('最多选择两个赛道', 'warning');
+        } else {
+            this.selectedTracks.push(name);
+        }
+        this.trackConflicts = [];
+        this.populateAccountTracksUI();
+        await this.updateConfig({
+            dimensional_creative: {
+                ...this.config.dimensional_creative,
+                account_tracks: this.getAccountTrackSelection()
+            }
+        });
+    }
+
+    async applyTrackRecommendation() {
+        if (!this.selectedTracks.length) {
+            window.app?.showNotification('请先勾选至少一个赛道', 'warning');
+            return;
+        }
+        const response = await fetch(`${this.apiEndpoint}/track-recommend`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tracks: this.selectedTracks })
+        });
+        if (!response.ok) {
+            const detail = await response.json().catch(() => ({}));
+            window.app?.showNotification(detail.detail || '获取赛道推荐失败', 'error');
+            return;
+        }
+        const result = await response.json();
+        const rec = result.data || {};
+        const currentOptions = this.config.dimensional_creative?.dimension_options || {};
+        const nextOptions = { ...currentOptions };
+        Object.entries(rec.selected_options || {}).forEach(([dimensionKey, optionName]) => {
+            nextOptions[dimensionKey] = {
+                ...currentOptions[dimensionKey],
+                selected_option: optionName,
+                custom_input: ''
+            };
+        });
+        this.trackConflicts = rec.conflicts || [];
+        await this.updateConfig({
+            dimensional_creative: {
+                ...this.config.dimensional_creative,
+                enabled: true,
+                auto_dimension_selection: false,
+                creative_intensity: rec.creative_intensity,
+                max_dimensions: rec.max_dimensions,
+                priority_categories: rec.priority_categories,
+                account_tracks: this.getAccountTrackSelection(),
+                enabled_dimensions: rec.enabled_dimensions,
+                dimension_options: nextOptions
+            }
+        });
+        this.populateCreativeUI();
+        const conflictHint = this.trackConflicts.length
+            ? `，有 ${this.trackConflicts.length} 个冲突维度已保留主赛道`
+            : '';
+        window.app?.showNotification(`已应用赛道推荐${conflictHint}`, 'success');
+    }
+
+    async applySecondaryConflictOption(conflict) {
+        if (!conflict) return;
+        const dimensionKey = conflict.dimension;
+        await this.updateConfig({
+            dimensional_creative: {
+                ...this.config.dimensional_creative,
+                dimension_options: {
+                    ...this.config.dimensional_creative.dimension_options,
+                    [dimensionKey]: {
+                        ...this.config.dimensional_creative.dimension_options[dimensionKey],
+                        selected_option: conflict.secondary_option,
+                        custom_input: ''
+                    }
+                }
+            }
+        });
+        this.trackConflicts = this.trackConflicts.filter((item) => item.dimension !== dimensionKey);
+        this.populateCreativeUI();
+        window.app?.showNotification(`已将 ${dimensionKey} 改为辅赛道选项`, 'success');
+    }
+
     // 填充创意配置UI  
     populateCreativeUI() {  
         if (!this.config.dimensional_creative) return;  
@@ -3065,7 +3257,11 @@ class AIWriteXConfigManager {
         const experimentalCheckbox = document.getElementById('allow-experimental');  
         if (experimentalCheckbox) {  
             experimentalCheckbox.checked = creativeConfig.allow_experimental || false;  
-        }  
+        }
+
+        const savedTracks = creativeConfig.account_tracks || {};
+        this.selectedTracks = [savedTracks.primary, savedTracks.secondary].filter(Boolean);
+        this.populateAccountTracksUI();
         
         // 生成维度分组卡片  
         this.populateDimensionGroups();  
@@ -3422,7 +3618,15 @@ class AIWriteXConfigManager {
         row.appendChild(checkboxLabel);  
         row.appendChild(label);  
         row.appendChild(select);  
-        row.appendChild(customInput);  
+        row.appendChild(customInput);
+
+        const conflict = (this.trackConflicts || []).find((item) => item.dimension === dimensionKey);
+        if (conflict) {
+            const hint = document.createElement('div');
+            hint.className = 'dimension-conflict-hint';
+            hint.textContent = `主赛道已选「${conflict.primary_option}」，辅赛道为「${conflict.secondary_option}」`;
+            row.appendChild(hint);
+        }
         
         return row;  
     }
@@ -3486,6 +3690,192 @@ class AIWriteXConfigManager {
             success ? '页面设计已保存' : '保存配置失败',  
             success ? 'success' : 'error'  
         );  
+    }
+
+    escapeSearchText(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    renderSearchSites() {
+        const list = document.getElementById('search-sites-list');
+        if (!list) {
+            return;
+        }
+        const sites = Array.isArray(this.config.search_sites) ? this.config.search_sites : [];
+        list.innerHTML = sites.map((site) => {
+            const enabled = site.enabled !== false;
+            const count = site.count || 3;
+            const id = this.escapeSearchText(site.id);
+            const name = this.escapeSearchText(site.name);
+            const url = this.escapeSearchText(site.url || '');
+            const nameField = site.builtin
+                ? `<span class="search-site-name">${name}</span>`
+                : `<input type="text" class="form-control search-site-name-input" data-id="${id}" value="${name}">`;
+            const urlField = site.builtin
+                ? ''
+                : `<input type="text" class="form-control search-site-url-input" data-id="${id}" value="${url}">`;
+            const removeButton = site.builtin
+                ? ''
+                : `<button type="button" class="btn btn-secondary search-site-remove" data-id="${id}">删除</button>`;
+            return `
+                <div class="search-site-row ${enabled ? '' : 'is-disabled'}">
+                    ${nameField}
+                    ${urlField}
+                    <label>条数
+                        <input type="number" class="form-control search-site-count" data-id="${id}" min="1" max="10" value="${count}">
+                    </label>
+                    <button type="button" class="btn btn-secondary search-site-toggle" data-id="${id}">${enabled ? '停用' : '启用'}</button>
+                    <button type="button" class="btn btn-secondary search-site-trial" data-id="${id}">试搜</button>
+                    ${removeButton}
+                </div>
+            `;
+        }).join('');
+    }
+
+    async persistSearchSites(sites) {
+        this.config.search_sites = sites;
+        const saved = await this.updateConfig({ search_sites: sites });
+        this.renderSearchSites();
+        if (!saved) {
+            window.app?.showNotification('搜索网站设置更新失败', 'error');
+        }
+    }
+
+    async onSearchSiteClick(event) {
+        const toggle = event.target.closest('.search-site-toggle');
+        const trial = event.target.closest('.search-site-trial');
+        const remove = event.target.closest('.search-site-remove');
+        const add = event.target.closest('#add-search-site');
+        if (toggle) {
+            const sites = (this.config.search_sites || []).map((site) => {
+                if (site.id !== toggle.dataset.id) {
+                    return site;
+                }
+                return { ...site, enabled: !site.enabled };
+            });
+            await this.persistSearchSites(sites);
+            return;
+        }
+        if (remove) {
+            const sites = (this.config.search_sites || []).filter((site) => site.id !== remove.dataset.id || site.builtin);
+            await this.persistSearchSites(sites);
+            return;
+        }
+        if (trial) {
+            await this.trialSearchSite(trial.dataset.id);
+            return;
+        }
+        if (add) {
+            await this.addSearchSite();
+        }
+    }
+
+    async onSearchSiteChange(event) {
+        const target = event.target;
+        const siteId = target.dataset.id;
+        if (!siteId) {
+            return;
+        }
+        const sites = (this.config.search_sites || []).map((site) => {
+            if (site.id !== siteId) {
+                return site;
+            }
+            if (target.classList.contains('search-site-count')) {
+                const count = Math.min(10, Math.max(1, parseInt(target.value, 10) || 3));
+                target.value = count;
+                return { ...site, count };
+            }
+            if (target.classList.contains('search-site-name-input')) {
+                return { ...site, name: target.value.trim() || site.name };
+            }
+            if (target.classList.contains('search-site-url-input')) {
+                return { ...site, url: target.value.trim() };
+            }
+            return site;
+        });
+        this.config.search_sites = sites;
+        const saved = await this.updateConfig({ search_sites: sites });
+        if (!saved) {
+            window.app?.showNotification('搜索网站设置更新失败', 'error');
+        }
+    }
+
+    async addSearchSite() {
+        const nameInput = document.getElementById('new-search-site-name');
+        const urlInput = document.getElementById('new-search-site-url');
+        const countInput = document.getElementById('new-search-site-count');
+        const name = nameInput?.value.trim() || '';
+        const url = urlInput?.value.trim() || '';
+        const count = Math.min(10, Math.max(1, parseInt(countInput?.value, 10) || 3));
+        if (!name || !url.includes('{topic}') || !(url.startsWith('http://') || url.startsWith('https://'))) {
+            window.app?.showNotification('请填写网站名称，以及包含 {topic} 的 http 搜索地址', 'error');
+            return;
+        }
+        const sites = [...(this.config.search_sites || []), {
+            id: `custom-${Date.now()}`,
+            name,
+            url,
+            count,
+            enabled: true,
+            builtin: false
+        }];
+        nameInput.value = '';
+        urlInput.value = '';
+        countInput.value = '3';
+        await this.persistSearchSites(sites);
+    }
+
+    async trialSearchSite(siteId) {
+        const site = (this.config.search_sites || []).find((item) => item.id === siteId);
+        const siteName = site?.name || '该网站';
+        window.dialogManager.showInput(
+            '试搜',
+            `测试「${this.escapeSearchText(siteName)}」。结果只用于查看，不会保存，也不会用于写作。`,
+            '',
+            async (topic) => {
+                if (!topic) {
+                    return;
+                }
+                const box = document.getElementById('search-trial-result');
+                if (!box) {
+                    return;
+                }
+                box.hidden = false;
+                box.textContent = '正在试搜...';
+                try {
+                    const response = await fetch(`${this.apiEndpoint}/search-trial`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ site_id: siteId, topic })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) {
+                        box.textContent = result.detail || '试搜失败';
+                        return;
+                    }
+                    const data = result.data || {};
+                    const results = data.results || [];
+                    if (!results.length) {
+                        box.textContent = data.error || '未获取到可用结果';
+                        return;
+                    }
+                    const title = this.escapeSearchText(`${data.site_name || siteName} 试搜结果，仅测试`);
+                    box.innerHTML = `<p class="form-help">${title}</p>` + results.map((item) => `
+                        <div class="search-trial-item">
+                            <strong>${this.escapeSearchText(item.title)}</strong>
+                            <p>${this.escapeSearchText(item.abstract)}</p>
+                            <p class="form-help">${this.escapeSearchText(item.url)}</p>
+                        </div>
+                    `).join('');
+                } catch (error) {
+                    box.textContent = '试搜失败';
+                }
+            }
+        );
     }
 
     updateSliderValue(slider) {  

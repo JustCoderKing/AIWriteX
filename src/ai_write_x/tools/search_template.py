@@ -831,6 +831,284 @@ ENGINE_CONFIGS = {
 }
 
 
+BUILTIN_SEARCH_SITE_IDS = ["baidu", "sogou", "360", "bing"]
+BUILTIN_SEARCH_SITE_NAMES = {
+    "baidu": "百度",
+    "sogou": "搜狗",
+    "360": "360",
+    "bing": "必应",
+}
+MIN_SNIPPET_LENGTH = 20
+_GENERIC_SELECTORS = {"p", "div", "span", "a", "article", "section"}
+
+
+def default_search_sites() -> List[Dict[str, Any]]:
+    """系统设置中的默认搜索站。解析规则不放在配置里。"""
+    sites = []
+    for site_id in BUILTIN_SEARCH_SITE_IDS:
+        sites.append(
+            {
+                "id": site_id,
+                "name": BUILTIN_SEARCH_SITE_NAMES[site_id],
+                "enabled": True,
+                "count": 3,
+                "builtin": True,
+                "url": ENGINE_CONFIGS[site_id]["url"],
+            }
+        )
+    return sites
+
+
+def normalize_search_sites(raw_sites: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """补齐四个默认站，并保留地址里包含 {topic} 的自定义站。"""
+    by_id = {}
+    custom_sites = []
+    for item in raw_sites or []:
+        if not isinstance(item, dict):
+            continue
+        site_id = str(item.get("id") or "").strip()
+        if site_id in BUILTIN_SEARCH_SITE_NAMES:
+            by_id[site_id] = item
+        else:
+            custom_sites.append(item)
+
+    sites = []
+    for site_id in BUILTIN_SEARCH_SITE_IDS:
+        user_site = by_id.get(site_id, {})
+        sites.append(
+            {
+                "id": site_id,
+                "name": BUILTIN_SEARCH_SITE_NAMES[site_id],
+                "enabled": bool(user_site.get("enabled", True)),
+                "count": _clamp_search_count(user_site.get("count", 3)),
+                "builtin": True,
+                "url": ENGINE_CONFIGS[site_id]["url"],
+            }
+        )
+
+    for item in custom_sites:
+        url = str(item.get("url") or "").strip()
+        if "{topic}" not in url or not url.startswith(("http://", "https://")):
+            continue
+        site_id = str(item.get("id") or "").strip() or f"custom-{abs(hash(url)) % 100000000}"
+        name = str(item.get("name") or "").strip()[:40] or "自定义网站"
+        sites.append(
+            {
+                "id": site_id,
+                "name": name,
+                "enabled": bool(item.get("enabled", True)),
+                "count": _clamp_search_count(item.get("count", 3)),
+                "builtin": False,
+                "url": url,
+            }
+        )
+    return sites
+
+
+def search_one_site(site: Dict[str, Any], topic: str) -> Dict[str, Any]:
+    """检索一个网站。试搜和写作共用，调用方决定是否保存。"""
+    from src.ai_write_x.utils import log
+
+    query = (topic or "").strip()
+    name = site.get("name") or site.get("id") or "搜索网站"
+    count = _clamp_search_count(site.get("count", 3))
+    if not query:
+        return {"success": False, "site_name": name, "results": [], "error": "话题为空"}
+
+    try:
+        html_text = _fetch_search_html(site.get("url") or "", query, count)
+        if site.get("builtin") and site.get("id") in ENGINE_CONFIGS:
+            items = _collect_search_items(
+                BeautifulSoup(html_text, "html.parser"), ENGINE_CONFIGS[site["id"]], count
+            )
+        else:
+            items = parse_generic_html(html_text, count)
+    except Exception as exc:
+        message = f"{name}检索失败: {exc}"
+        log.print_log(message, "warning")
+        return {"success": False, "site_name": name, "results": [], "error": message}
+
+    usable = [item for item in items if _usable_search_item(item["title"], item["url"], item["abstract"])]
+    usable = usable[:count]
+    log.print_log(f"{name}：可用 {len(usable)} 条，配置条数 {count}")
+    if not usable:
+        return {"success": False, "site_name": name, "results": [], "error": f"{name}未返回可用结果"}
+    return {"success": True, "site_name": name, "results": usable, "error": ""}
+
+
+def search_enabled_sites(sites: List[Dict[str, Any]], topic: str) -> List[Dict[str, Any]]:
+    """只检索已启用的网站，每个网站最多取自身配置的条数。"""
+    from src.ai_write_x.utils import log
+
+    collected = []
+    enabled = [site for site in sites if site.get("enabled")]
+    if not enabled:
+        log.print_log("没有启用的搜索网站", "warning")
+        return []
+
+    log.print_log("开始按已启用的搜索网站检索：" + "、".join(site["name"] for site in enabled))
+    for site in enabled:
+        payload = search_one_site(site, topic)
+        for item in payload.get("results") or []:
+            item["source_name"] = site.get("name") or ""
+            collected.append(item)
+    log.print_log(f"搜索网站合计可用 {len(collected)} 条")
+    return collected
+
+
+def parse_engine_html(engine: str, html_text: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    soup = BeautifulSoup(html_text, "html.parser")
+    return _collect_search_items(soup, ENGINE_CONFIGS[engine], max_results)
+
+
+def parse_generic_html(html_text: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """自定义网站的通用提取：标题链接加上附近摘要。"""
+    soup = BeautifulSoup(html_text, "html.parser")
+    for tag in soup.select("script, style, noscript"):
+        tag.decompose()
+
+    items = _generic_items_from_links(soup.select("h3 a[href], h2 a[href]"), max_results)
+    if items:
+        return items
+    return _generic_items_from_links(soup.select("a[href]"), max_results)
+
+
+def _generic_items_from_links(links, max_results: int) -> List[Dict[str, Any]]:
+    items = []
+    seen = set()
+    for link in links:
+        title = clean_text(link.get_text(" ", strip=True))
+        url = _absolute_href(str(link.get("href") or ""))
+        parent = link.find_parent(["li", "article", "section", "div"]) or link.parent
+        abstract = ""
+        if parent is not None:
+            text = clean_text(parent.get_text(" ", strip=True))
+            if title and title in text:
+                text = clean_text(text.replace(title, " ", 1))
+            if _good_snippet(text, title) and len(text) <= 400:
+                abstract = text[:300]
+        if not _usable_search_item(title, url, abstract) or url in seen:
+            continue
+        seen.add(url)
+        items.append(
+            {"title": title[:120], "abstract": abstract[:300], "url": url, "pub_time": _snippet_pub_time(abstract)}
+        )
+        if len(items) >= max_results:
+            break
+    return items
+
+
+def _fetch_search_html(url_template: str, topic: str, count: int) -> str:
+    from urllib.parse import quote
+
+    if "{topic}" not in (url_template or ""):
+        raise ValueError("搜索地址需要包含 {topic}")
+    url = url_template.format(topic=quote(topic), max_results=count, count=count)
+    response = requests.get(url, headers=get_common_headers(), timeout=12)
+    response.raise_for_status()
+    response.encoding = response.apparent_encoding or response.encoding or "utf-8"
+    return response.text
+
+
+def _collect_search_items(soup, cfg: Dict[str, Any], max_results: int) -> List[Dict[str, Any]]:
+    containers = []
+    for selector in cfg.get("result_selectors") or []:
+        if selector.strip() in _GENERIC_SELECTORS:
+            continue
+        found = soup.select(selector)
+        if 1 <= len(found) <= 30:
+            containers = found
+            break
+
+    items = []
+    seen = set()
+    for node in containers:
+        title, url = _title_and_url(node)
+        abstract = _abstract_from_node(node, cfg, title)
+        if not _usable_search_item(title, url, abstract):
+            continue
+        identity = url.split("#", 1)[0]
+        if identity in seen:
+            continue
+        seen.add(identity)
+        items.append(
+            {
+                "title": title[:120],
+                "abstract": abstract[:300],
+                "url": url,
+                "pub_time": _snippet_pub_time(abstract),
+            }
+        )
+        if len(items) >= max_results:
+            break
+    return items
+
+
+def _title_and_url(node):
+    mu = str(node.get("mu") or "").strip()
+    link = node.select_one("h3 a[href]") or node.select_one("a[href]")
+    if not link:
+        return "", ""
+    title = clean_text(link.get_text(" ", strip=True))
+    url = mu if mu.startswith("http") else _absolute_href(str(link.get("href") or ""))
+    return title, url
+
+
+def _abstract_from_node(node, cfg: Dict[str, Any], title: str) -> str:
+    for selector in cfg.get("abstract_selectors") or []:
+        if selector.strip() in _GENERIC_SELECTORS:
+            continue
+        for element in node.select(selector)[:3]:
+            text = clean_text(element.get_text(" ", strip=True))
+            if _good_snippet(text, title):
+                return text[:300]
+    text = clean_text(node.get_text(" ", strip=True))
+    if title and title in text:
+        text = clean_text(text.replace(title, " ", 1))
+    if _good_snippet(text, title) and len(text) <= 400:
+        return text[:300]
+    return ""
+
+
+def _absolute_href(href: str) -> str:
+    href = (href or "").strip()
+    if href.startswith("//"):
+        return "https:" + href
+    return href
+
+
+def _good_snippet(text: str, title: str) -> bool:
+    if not text or len(text) < MIN_SNIPPET_LENGTH or len(text) > 500:
+        return False
+    return text != title
+
+
+def _usable_search_item(title: str, url: str, abstract: str) -> bool:
+    if len(title or "") < 4 or len(title) > 80:
+        return False
+    if not str(url or "").startswith(("http://", "https://")):
+        return False
+    lowered = f"{title} {url}".lower()
+    if any(token in lowered for token in ("javascript:", "下一页", "相关搜索", "百度一下")):
+        return False
+    return len(abstract or "") >= MIN_SNIPPET_LENGTH
+
+
+def _snippet_pub_time(abstract: str) -> str:
+    if not abstract:
+        return ""
+    match = re.search(r"\d{4}-\d{2}-\d{2}", abstract)
+    return match.group(0) if match else ""
+
+
+def _clamp_search_count(value) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = 3
+    return min(10, max(1, count))
+
+
 # ---------- 以下为通过链接提取文章信息----------------
 def extract_urls_content(urls: List[str], topic="") -> Dict[str, Any]:
     """提取URL内容，自动检测并处理动态网站，并返回标准格式"""

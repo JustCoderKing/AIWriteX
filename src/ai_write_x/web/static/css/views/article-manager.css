@@ -1,4 +1,43 @@
-/* ========== 文章管理特有样式 ========== */  
+/* ========== 文章管理特有样式 ========== */
+
+.retemplate-dialog {
+    width: min(860px, calc(100vw - 32px));
+    max-width: 860px;
+}
+
+.retemplate-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.html-import-dialog {
+    width: min(860px, calc(100vw - 32px));
+    max-width: 860px;
+}
+
+.html-import-tabs,
+.html-import-template-fields {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.html-import-preview {
+    width: 100%;
+    height: 360px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.retemplate-preview {
+    width: 100%;
+    height: 360px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: #fff;
+}  
     
 /* 隐藏原生复选框 */  
 .article-card .batch-checkbox {  

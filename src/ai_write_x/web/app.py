@@ -54,6 +54,10 @@ async def lifespan(app: FastAPI):
         if not app_state.config.load_config():
             log.print_log("配置加载失败，使用默认配置", "warning")
 
+        from src.ai_write_x.core.system_init import initialize_global_tools
+
+        initialize_global_tools()
+
     except Exception as e:
         log.print_log(f"Web服务启动失败: {str(e)}", "error")
 

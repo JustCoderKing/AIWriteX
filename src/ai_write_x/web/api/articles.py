@@ -13,6 +13,7 @@ from src.ai_write_x.config.config import Config
 from src.ai_write_x.utils.path_manager import PathManager
 from src.ai_write_x.tools.wx_publisher import pub2wx
 from src.ai_write_x.utils import utils
+from src.ai_write_x.utils import log
 
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
@@ -26,6 +27,24 @@ class PublishRequest(BaseModel):
     article_paths: List[str]
     account_indices: List[int]
     platform: str = "wechat"
+
+
+class ArticlePathRequest(BaseModel):
+    path: str
+
+
+class RetemplateRequest(BaseModel):
+    path: str
+    template_path: str
+
+
+class HtmlImportRequest(BaseModel):
+    html: str
+    filename: str = ""
+    action: str = "preview"
+    title: str = ""
+    template_name: str = ""
+    template_category: str = "导入模板"
 
 
 @router.get("/")
@@ -104,8 +123,171 @@ async def preview_article(path: str):
 
     content = file_path.read_text(encoding="utf-8")
     return HTMLResponse(
-        content, headers={"Content-Security-Policy": "default-src 'self' 'unsafe-inline'"}
+        content,
+        headers={
+            "Content-Security-Policy": "default-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline'"
+        },
     )
+
+
+@router.get("/media")
+async def get_article_media(name: str):
+    """读取一键优化后保存在本地的文章图片。"""
+    from fastapi.responses import FileResponse
+    from src.ai_write_x.utils.article_images import resolve_media_file
+
+    try:
+        file_path = resolve_media_file(name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return FileResponse(file_path)
+
+
+@router.post("/optimize-images")
+async def optimize_images(request: ArticlePathRequest):
+    """把文章中的外链和相对路径图片换成可预览的本地图片。"""
+    from src.ai_write_x.utils.article_images import optimize_article_images
+
+    file_path = Path(request.path)
+    if not file_path.is_file() or file_path.suffix.lower() != ".html":
+        raise HTTPException(status_code=400, detail="只能优化 HTML 文章中的图片")
+
+    original = file_path.read_text(encoding="utf-8")
+    updated, count = optimize_article_images(original, file_path.stem)
+    if count:
+        file_path.write_text(updated, encoding="utf-8")
+    return {"status": "success", "replaced": count, "message": f"已优化 {count} 张图片"}
+
+
+@router.post("/import-html")
+async def import_html_article(request: HtmlImportRequest):
+    """导入公众号 HTML：预览适配结果，或保存为文章/模板。"""
+    from src.ai_write_x.utils.html_import import adapt_preview_html
+
+    if not (request.html or "").strip():
+        raise HTTPException(status_code=400, detail="HTML 内容为空")
+
+    adapted = adapt_preview_html(request.html)
+    title = (request.title or adapted["title"] or request.filename or "导入文章").strip()
+    action = (request.action or "preview").strip()
+
+    if action == "preview":
+        return {
+            "status": "success",
+            "title": title,
+            "article_html": adapted["article_html"],
+            "template_html": adapted["template_html"],
+        }
+
+    if action == "article":
+        article_dir = PathManager.get_article_dir()
+        file_path = _unique_file(article_dir, utils.sanitize_filename(title), ".html")
+        file_path.write_text(adapted["article_html"], encoding="utf-8")
+        meta = {
+            "use_template": False,
+            "formatting_mode": "raw",
+            "template_category": "",
+            "template_name": "",
+            "template_path": "",
+            "template_display": "导入HTML",
+        }
+        utils.save_article_meta(str(file_path), meta)
+        return {"status": "success", "message": f"已导入文章《{file_path.stem}》", "path": str(file_path)}
+
+    if action == "template":
+        category = (request.template_category or "导入模板").strip() or "导入模板"
+        name = utils.sanitize_filename((request.template_name or title).strip() or "导入模板")
+        template_dir = PathManager.get_template_dir() / category
+        template_dir.mkdir(parents=True, exist_ok=True)
+        file_path = _unique_file(template_dir, name, ".html")
+        file_path.write_text(adapted["template_html"], encoding="utf-8")
+        return {
+            "status": "success",
+            "message": f"已抽取模板 {category}/{file_path.stem}",
+            "path": str(file_path),
+        }
+
+    raise HTTPException(status_code=400, detail="不支持的导入操作")
+
+
+def _unique_file(directory: Path, stem: str, suffix: str) -> Path:
+    candidate = directory / f"{stem}{suffix}"
+    index = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}_{index}{suffix}"
+        index += 1
+    return candidate
+
+
+@router.post("/retemplate")
+async def retemplate_article(request: RetemplateRequest):
+    """按当前文章内容填充到指定模板并保存。"""
+    import asyncio
+    from src.ai_write_x.core.base_framework import ContentResult, ContentType
+    from src.ai_write_x.core.unified_workflow import UnifiedContentWorkflow
+    from src.ai_write_x.utils.article_images import extract_article_text
+
+    article_path = Path(request.path)
+    template_path = Path(request.template_path)
+    if not article_path.is_file():
+        raise HTTPException(status_code=404, detail="文章不存在")
+    if article_path.suffix.lower() != ".html":
+        raise HTTPException(status_code=400, detail="只有 HTML 文章可以更换模板")
+    if not template_path.is_file() or template_path.suffix.lower() != ".html":
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+    original = article_path.read_text(encoding="utf-8")
+    title, text = extract_article_text(original)
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="文章没有可填充的正文")
+
+    def fill():
+        from src.ai_write_x.core.system_init import initialize_global_tools
+
+        initialize_global_tools()
+        config = Config.get_instance()
+        previous = getattr(config, "forced_template_file", None)
+        config.forced_template_file = str(template_path)
+        try:
+            workflow = UnifiedContentWorkflow()
+            result = workflow._apply_template_formatting(
+                ContentResult(
+                    title=title or article_path.stem,
+                    content=text,
+                    summary="",
+                    content_format="html",
+                    content_type=ContentType.ARTICLE,
+                )
+            )
+            return result.content, config.last_used_template or {}
+        finally:
+            config.forced_template_file = previous
+
+    try:
+        html, template_info = await asyncio.to_thread(fill)
+    except Exception as exc:
+        log.print_log(f"更换模板失败: {exc}", "error")
+        raise HTTPException(status_code=500, detail=f"更换模板失败: {exc}")
+
+    if not html or "<" not in html:
+        raise HTTPException(status_code=500, detail="模板填充没有返回有效 HTML")
+
+    article_path.write_text(html, encoding="utf-8")
+    meta = utils.load_article_meta(str(article_path))
+    meta.update(
+        {
+            "use_template": True,
+            "formatting_mode": "template",
+            "template_category": template_info.get("category", template_path.parent.name),
+            "template_name": template_info.get("name", template_path.stem),
+            "template_path": template_info.get("path", ""),
+        }
+    )
+    meta["template_display"] = utils.format_template_display(meta)
+    utils.save_article_meta(str(article_path), meta)
+    return {"status": "success", "message": "已用新模板重新填充文章"}
 
 
 @router.delete("/{article_path:path}")

@@ -44,7 +44,7 @@
                         <span class="checkbox-custom"></span>  
                         自动选择维度  
                     </label>  
-                    <small class="form-help">AI智能选择最适合的维度组合</small>  
+                    <small class="form-help">关闭后可编辑下方五个维度分组，任务使用这里的选择</small>  
                 </div>  
                 <div class="form-group form-group-third">  
                     <label for="max-dimensions">最大维度数</label>  
@@ -82,7 +82,24 @@
                     <small class="form-help">允许使用实验性的维度组合</small>  
                 </div>  
             </div>  
-        </div>  
+        </div>
+
+        <div class="config-section">
+            <h3 class="section-title">账号赛道</h3>
+            <p class="form-help">最多勾选两个。先勾的是主赛道，后勾的是辅赛道。推荐只在点击「应用推荐」后写入下方维度，不会自动覆盖你改过的选项。</p>
+            <div id="account-track-chips" class="account-track-chips"></div>
+            <div class="form-row" style="margin-top: 12px;">
+                <div class="form-group">
+                    <small class="form-help" id="account-track-summary">未选择赛道</small>
+                </div>
+            </div>
+            <div id="account-track-conflicts" class="account-track-conflicts"></div>
+            <div class="config-actions" style="margin-top: 8px;">
+                <button type="button" id="apply-track-recommend" class="btn btn-secondary">
+                    应用推荐
+                </button>
+            </div>
+        </div>
           
         <!-- ========== 维度分组卡片容器 ========== -->  
         <div id="dimension-groups-container">  

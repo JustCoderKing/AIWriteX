@@ -356,37 +356,39 @@ class CreativeWorkshopManager {
             }  
         }  
         
-        // 自动获取热搜  
-        if (!topic && !referenceConfig) {  
-            window.app?.showNotification('正在自动获取热搜...', 'info');  
-            
-            try {  
-                const response = await fetch('/api/hot-topics');  
-                if (response.ok) {  
-                    const data = await response.json();  
-                    topic = data.topic || '';  
-                    this._hotSearchPlatform = data.platform || '';  
-                    
-                    if (!topic) {  
-                        window.app?.showNotification('获取热搜失败,请手动输入话题', 'warning');  
-                        return;  
-                    }  
-                    
-                    const topicInput = document.getElementById('topic-input');  
-                    if (topicInput) {  
-                        topicInput.value = topic;  
-                        this.currentTopic = topic;  
-                    }  
-                } else {  
-                    throw new Error('获取热搜失败');  
-                }  
-            } catch (error) {  
-                console.error('获取热搜失败:', error);  
-                window.app?.showNotification('获取热搜失败,请手动输入话题', 'error');  
-                return;  
-            }  
-        }  
+        // 自动获取热搜：先展示 5 条，选中后再开始生成
+        if (!topic && !referenceConfig) {
+            window.app?.showNotification('正在获取热搜...', 'info');
+            try {
+                const response = await fetch('/api/hot-topics');
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || '获取热搜失败');
+                }
+                const topics = data.topics || [];
+                if (!topics.length) {
+                    window.app?.showNotification('获取热搜失败,请手动输入话题', 'warning');
+                    return;
+                }
+                this.openHotTopicDialog(topics, referenceConfig);
+            } catch (error) {
+                console.error('获取热搜失败:', error);
+                window.app?.showNotification('获取热搜失败,请手动输入话题', 'error');
+            }
+            return;
+        }
         
+        await this.launchGeneration(topic, this._hotSearchPlatform || '', referenceConfig, null);
+    }
+
+    async launchGeneration(topic, platform, referenceConfig, creative) {
+        this._hotSearchPlatform = platform || '';
+        const topicInput = document.getElementById('topic-input');
+        if (topicInput && !this.currentTopic.trim()) {
+            topicInput.value = topic;
+            this.currentTopic = topic;
+        }
+
         // ========== 阶段 4: 所有校验通过,启动生成 ==========  
         
         // 在这里才设置生成状态  
@@ -425,7 +427,8 @@ class CreativeWorkshopManager {
                 body: JSON.stringify({  
                     topic: topic,  
                     platform: this._hotSearchPlatform || '',  
-                    reference: referenceConfig  
+                    reference: referenceConfig,
+                    creative: creative || null
                 })  
             });  
             
@@ -472,6 +475,169 @@ class CreativeWorkshopManager {
             this.isGenerating = false;  
             this.updateGenerationUI(false);  
         }  
+    }
+
+    async openHotTopicDialog(topics, referenceConfig) {
+        document.getElementById('hot-topic-dialog')?.remove();
+        const configResponse = await fetch('/api/config');
+        const configResult = await configResponse.json();
+        const systemCreative = configResult.data?.dimensional_creative || {};
+        let selectedIndex = 0;
+        const overlay = document.createElement('div');
+        overlay.id = 'hot-topic-dialog';
+        overlay.className = 'dialog-overlay';
+        overlay.innerHTML = `
+            <div class="custom-input-dialog hot-topic-dialog">
+                <div class="dialog-header"><h3>选择热搜话题</h3></div>
+                <div class="dialog-body">
+                    <p>热搜来自多个已启用平台。选择一条后开始写作。每条可以单独设置本次创意，未设置的使用系统配置。</p>
+                    <div id="hot-topic-list"></div>
+                    <div class="hot-topic-pagination" id="hot-topic-pagination"></div>
+                </div>
+                <div class="dialog-footer">
+                    <button type="button" class="btn btn-secondary" id="hot-topic-cancel">取消</button>
+                    <button type="button" class="btn btn-primary" id="hot-topic-start">开始生成</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        const list = overlay.querySelector('#hot-topic-list');
+        const pager = overlay.querySelector('#hot-topic-pagination');
+        const pageSize = 5;
+        let page = 1;
+        const pageCount = Math.max(1, Math.ceil(topics.length / pageSize));
+        const renderList = () => {
+            page = Math.min(pageCount, Math.max(1, page));
+            const start = (page - 1) * pageSize;
+            const visible = topics.slice(start, start + pageSize);
+            list.innerHTML = visible.map((item, offset) => {
+                const index = start + offset;
+                return `
+                <div class="hot-topic-row ${index === selectedIndex ? 'is-selected' : ''}">
+                    <input type="radio" name="hot-topic" ${index === selectedIndex ? 'checked' : ''} data-index="${index}">
+                    <span class="hot-topic-platform">${this.escapeHotText(item.platform || '')}</span>
+                    <span class="hot-topic-rank">${this.escapeHotText(item.rank || index + 1)}</span>
+                    <span class="hot-topic-name">${this.escapeHotText(item.name)}</span>
+                    <span class="hot-topic-heat">${item.heat ? this.escapeHotText(item.heat) : ''}</span>
+                    <button type="button" class="btn btn-secondary hot-topic-creative" data-index="${index}">${item.creative ? '已设创意' : '本次创意'}</button>
+                </div>
+            `;
+            }).join('');
+            pager.innerHTML = `
+                <button type="button" class="btn btn-secondary" data-hot-page="prev" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+                <span>第 ${page} / ${pageCount} 页，共 ${topics.length} 条</span>
+                <button type="button" class="btn btn-secondary" data-hot-page="next" ${page >= pageCount ? 'disabled' : ''}>下一页</button>
+            `;
+        };
+        renderList();
+        list.addEventListener('change', (event) => {
+            const radio = event.target.closest('input[name="hot-topic"]');
+            if (!radio) return;
+            selectedIndex = Number(radio.dataset.index);
+            renderList();
+        });
+        list.addEventListener('click', (event) => {
+            const button = event.target.closest('.hot-topic-creative');
+            if (!button) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const index = Number(button.dataset.index);
+            this.openTaskCreativeDialog(topics[index], systemCreative, () => renderList());
+        });
+        pager.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-hot-page]');
+            if (!button || button.disabled) return;
+            page += button.dataset.hotPage === 'next' ? 1 : -1;
+            renderList();
+        });
+        overlay.querySelector('#hot-topic-cancel').addEventListener('click', () => overlay.remove());
+        overlay.querySelector('#hot-topic-start').addEventListener('click', async () => {
+            const topic = topics[selectedIndex];
+            if (!topic) return;
+            overlay.remove();
+            await this.launchGeneration(topic.name, topic.platform || '', referenceConfig, topic.creative || null);
+        });
+    }
+
+    openTaskCreativeDialog(topic, systemCreative, onSaved) {
+        document.getElementById('task-creative-dialog')?.remove();
+        const creative = JSON.parse(JSON.stringify(topic.creative || systemCreative || {}));
+        const groups = [
+            { name: '文体表达维度', dimensions: ['style', 'language', 'tone'] },
+            { name: '文化时空维度', dimensions: ['culture', 'time', 'scene'] },
+            { name: '角色技法维度', dimensions: ['personality', 'technique', 'perspective'] },
+            { name: '结构节奏维度', dimensions: ['structure', 'rhythm'] },
+            { name: '受众主题维度', dimensions: ['audience', 'theme', 'emotion', 'format'] }
+        ];
+        const options = creative.dimension_options || {};
+        const enabled = creative.enabled_dimensions || {};
+        const overlay = document.createElement('div');
+        overlay.id = 'task-creative-dialog';
+        overlay.className = 'dialog-overlay';
+        const dimensionRows = groups.map((group) => `
+            <section class="task-creative-group">
+                <h4>${group.name}</h4>
+                ${group.dimensions.map((key) => {
+                    const dimension = options[key];
+                    if (!dimension) return '';
+                    const presets = dimension.preset_options || [];
+                    const selected = dimension.selected_option || '';
+                    return `
+                        <div class="task-creative-row" data-dimension="${key}">
+                            <label><input type="checkbox" class="task-dimension-enabled" ${enabled[key] ? 'checked' : ''}> ${this.escapeHotText(dimension.name || key)}</label>
+                            <select class="form-control task-dimension-option">
+                                <option value="" ${selected === '' ? 'selected' : ''}>自动选择</option>
+                                ${presets.map((item) => `<option value="${this.escapeHotText(item.name)}" ${selected === item.name ? 'selected' : ''}>${this.escapeHotText(item.value)}</option>`).join('')}
+                                <option value="custom" ${selected === 'custom' ? 'selected' : ''}>自定义</option>
+                            </select>
+                            <input type="text" class="form-control task-dimension-custom" placeholder="自定义内容" value="${this.escapeHotText(dimension.custom_input || '')}">
+                        </div>
+                    `;
+                }).join('')}
+            </section>
+        `).join('');
+        overlay.innerHTML = `
+            <div class="custom-input-dialog task-creative-dialog">
+                <div class="dialog-header"><h3>本次创意设置</h3></div>
+                <div class="dialog-body">
+                    <p>话题：${this.escapeHotText(topic.name)}。这里的修改只对本次任务生效。</p>
+                    <label class="checkbox-label"><input type="checkbox" id="task-creative-enabled" ${creative.enabled ? 'checked' : ''}> 启用维度化创意</label>
+                    <label>创意强度 <input type="number" id="task-creative-intensity" class="form-control" min="0.7" max="1.5" step="0.1" value="${creative.creative_intensity || 1}"></label>
+                    <label class="checkbox-label"><input type="checkbox" id="task-creative-auto" ${creative.auto_dimension_selection ? 'checked' : ''}> 自动选择维度</label>
+                    ${dimensionRows}
+                </div>
+                <div class="dialog-footer">
+                    <button type="button" class="btn btn-secondary" id="task-creative-cancel">取消</button>
+                    <button type="button" class="btn btn-primary" id="task-creative-save">用于本次</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.querySelector('#task-creative-cancel').addEventListener('click', () => overlay.remove());
+        overlay.querySelector('#task-creative-save').addEventListener('click', () => {
+            creative.enabled = overlay.querySelector('#task-creative-enabled').checked;
+            creative.creative_intensity = parseFloat(overlay.querySelector('#task-creative-intensity').value) || 1;
+            creative.auto_dimension_selection = overlay.querySelector('#task-creative-auto').checked;
+            creative.enabled_dimensions = { ...(creative.enabled_dimensions || {}) };
+            overlay.querySelectorAll('.task-creative-row').forEach((row) => {
+                const key = row.dataset.dimension;
+                creative.enabled_dimensions[key] = row.querySelector('.task-dimension-enabled').checked;
+                if (!creative.dimension_options[key]) return;
+                creative.dimension_options[key].selected_option = row.querySelector('.task-dimension-option').value;
+                creative.dimension_options[key].custom_input = row.querySelector('.task-dimension-custom').value.trim();
+            });
+            topic.creative = creative;
+            overlay.remove();
+            if (onSaved) onSaved();
+        });
+    }
+
+    escapeHotText(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
             
     // 清理进度条的辅助方法    

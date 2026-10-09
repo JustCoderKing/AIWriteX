@@ -242,6 +242,19 @@ class ArticleManager {
                 </div> 
             </div>  
             <div class="card-actions">  
+                <button class="btn-icon" data-action="retemplate" title="换模板">  
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>  
+                        <path d="M3 9h18M9 21V9"/>  
+                    </svg>  
+                </button>  
+                <button class="btn-icon" data-action="optimize-images" title="优化图片">  
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
+                        <rect x="3" y="5" width="18" height="14" rx="2"/>  
+                        <circle cx="8.5" cy="10" r="1.5"/>  
+                        <path d="M21 16l-5-5-4 4-2-2-5 5"/>  
+                    </svg>  
+                </button>  
                 <button class="btn-icon" data-action="edit" title="编辑">  
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor">  
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>  
@@ -506,6 +519,12 @@ class ArticleManager {
             case 'edit':  
                 await this.editArticle(article);  
                 break;  
+            case 'retemplate':  
+                await this.openRetemplateDialog(article);  
+                break;  
+            case 'optimize-images':  
+                await this.optimizeArticleImages(article);  
+                break;  
             case 'illustration':  
                 await this.openImageDesigner(article)
                 break;  
@@ -685,6 +704,17 @@ class ArticleManager {
         // 搜索    
         document.getElementById('article-search')?.addEventListener('input', (e) => {    
             this.searchArticles(e.target.value);    
+        });
+
+        document.getElementById('import-html-article')?.addEventListener('click', () => {
+            document.getElementById('article-html-file')?.click();
+        });
+        document.getElementById('article-html-file')?.addEventListener('change', (event) => {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            if (file) {
+                this.importHtmlFile(file);
+            }
         });    
         
         // 视图切换 - 删除全局绑定,只保留限定作用域的绑定  
@@ -846,6 +876,219 @@ class ArticleManager {
         }  
     }  
     
+    async importHtmlFile(file) {
+        const html = await file.text();
+        let preview;
+        try {
+            const response = await fetch('/api/articles/import-html', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ html, filename: file.name, action: 'preview' })
+            });
+            preview = await response.json();
+            if (!response.ok) {
+                window.app?.showNotification(preview.detail || '导入失败', 'error');
+                return;
+            }
+        } catch (error) {
+            window.app?.showNotification('导入失败', 'error');
+            return;
+        }
+        this.openHtmlImportDialog(html, file.name, preview);
+    }
+
+    openHtmlImportDialog(html, filename, preview) {
+        document.getElementById('html-import-dialog')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'html-import-dialog';
+        overlay.className = 'dialog-overlay';
+        overlay.innerHTML = `
+            <div class="custom-input-dialog html-import-dialog">
+                <div class="dialog-header"><h3>导入 HTML</h3></div>
+                <div class="dialog-body">
+                    <p>已去掉预览外壳，并把样式转成内联样式。可以保存为文章，或抽取成模板。</p>
+                    <label>标题 <input id="html-import-title" class="form-control" value="${this.escapeHtml(preview.title || '')}"></label>
+                    <div class="html-import-tabs">
+                        <button type="button" class="btn btn-secondary" data-import-view="article">文章效果</button>
+                        <button type="button" class="btn btn-secondary" data-import-view="template">模板效果</button>
+                    </div>
+                    <iframe id="html-import-preview" class="html-import-preview" sandbox="allow-same-origin"></iframe>
+                    <div class="html-import-template-fields">
+                        <input id="html-import-category" class="form-control" value="导入模板" placeholder="模板分类">
+                        <input id="html-import-name" class="form-control" value="${this.escapeHtml(preview.title || filename)}" placeholder="模板名称">
+                    </div>
+                </div>
+                <div class="dialog-footer">
+                    <button type="button" class="btn btn-secondary" id="html-import-cancel">取消</button>
+                    <button type="button" class="btn btn-secondary" id="html-import-template">抽取为模板</button>
+                    <button type="button" class="btn btn-primary" id="html-import-article">保存为文章</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        const frame = overlay.querySelector('#html-import-preview');
+        const show = (kind) => {
+            frame.srcdoc = kind === 'template' ? preview.template_html : preview.article_html;
+        };
+        show('article');
+        overlay.querySelector('.html-import-tabs').addEventListener('click', (event) => {
+            const button = event.target.closest('[data-import-view]');
+            if (button) show(button.dataset.importView);
+        });
+        overlay.querySelector('#html-import-cancel').addEventListener('click', () => overlay.remove());
+        const submit = async (action) => {
+            const title = overlay.querySelector('#html-import-title').value.trim();
+            const response = await fetch('/api/articles/import-html', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    html,
+                    filename,
+                    action,
+                    title,
+                    template_name: overlay.querySelector('#html-import-name').value.trim(),
+                    template_category: overlay.querySelector('#html-import-category').value.trim()
+                })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                window.app?.showNotification(result.detail || '保存失败', 'error');
+                return;
+            }
+            overlay.remove();
+            window.app?.showNotification(result.message || '已保存', 'success');
+            if (action === 'article') {
+                await this.loadArticles();
+            }
+        };
+        overlay.querySelector('#html-import-article').addEventListener('click', () => submit('article'));
+        overlay.querySelector('#html-import-template').addEventListener('click', () => submit('template'));
+    }
+
+    async optimizeArticleImages(article) {
+        const ext = (article.path || '').toLowerCase().split('.').pop();
+        if (ext !== 'html') {
+            window.dialogManager?.showAlert('只有 HTML 文章可以优化图片', 'info');
+            return;
+        }
+        window.dialogManager.showConfirm(
+            '将文章中的外链图片和相对路径图片换成可预览的本地图片。',
+            async () => {
+                try {
+                    const response = await fetch('/api/articles/optimize-images', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: article.path })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) {
+                        window.app?.showNotification(result.detail || '优化图片失败', 'error');
+                        return;
+                    }
+                    window.app?.showNotification(result.message || '图片已优化', 'success');
+                    await this.loadArticles();
+                } catch (error) {
+                    window.app?.showNotification('优化图片失败', 'error');
+                }
+            }
+        );
+    }
+
+    async openRetemplateDialog(article) {
+        const ext = (article.path || '').toLowerCase().split('.').pop();
+        if (ext !== 'html') {
+            window.dialogManager?.showAlert('只有 HTML 文章可以更换模板', 'info');
+            return;
+        }
+        const existing = document.getElementById('retemplate-dialog');
+        if (existing) {
+            existing.remove();
+        }
+        const overlay = document.createElement('div');
+        overlay.id = 'retemplate-dialog';
+        overlay.className = 'dialog-overlay';
+        overlay.innerHTML = `
+            <div class="custom-input-dialog retemplate-dialog">
+                <div class="dialog-header"><h3>更换模板</h3></div>
+                <div class="dialog-body">
+                    <p>先预览模板，确认后再把当前文章内容填入新模板。</p>
+                    <div class="retemplate-controls">
+                        <select id="retemplate-category" class="form-control"></select>
+                        <select id="retemplate-template" class="form-control"></select>
+                    </div>
+                    <iframe id="retemplate-preview" class="retemplate-preview" sandbox="allow-same-origin"></iframe>
+                </div>
+                <div class="dialog-footer">
+                    <button type="button" class="btn btn-secondary" id="retemplate-cancel">取消</button>
+                    <button type="button" class="btn btn-primary" id="retemplate-apply">填充并替换</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        overlay.querySelector('#retemplate-cancel').addEventListener('click', close);
+        const categorySelect = overlay.querySelector('#retemplate-category');
+        const templateSelect = overlay.querySelector('#retemplate-template');
+        const preview = overlay.querySelector('#retemplate-preview');
+        const showTemplate = async () => {
+            const templatePath = templateSelect.value;
+            if (!templatePath) {
+                preview.srcdoc = '<p style="padding:16px;">请选择模板</p>';
+                return;
+            }
+            const response = await fetch(`/api/templates/content/${encodeURIComponent(templatePath)}`);
+            const html = await response.text();
+            preview.srcdoc = response.ok ? html : '<p style="padding:16px;">模板预览失败</p>';
+        };
+        const categoriesResponse = await fetch('/api/templates/categories');
+        const categoriesResult = await categoriesResponse.json();
+        const categories = categoriesResult.data || [];
+        categorySelect.innerHTML = categories.map((item) => `<option value="${this.escapeHtml(item.name)}">${this.escapeHtml(item.name)}</option>`).join('');
+        const loadTemplates = async () => {
+            const category = categorySelect.value;
+            const response = await fetch(`/api/templates?category=${encodeURIComponent(category)}`);
+            const result = await response.json();
+            const templates = result.data || [];
+            templateSelect.innerHTML = templates.map((item) => `<option value="${this.escapeHtml(item.path)}">${this.escapeHtml(item.name)}</option>`).join('');
+            await showTemplate();
+        };
+        categorySelect.addEventListener('change', () => loadTemplates());
+        templateSelect.addEventListener('change', () => showTemplate());
+        if (categories.length) {
+            await loadTemplates();
+        }
+        overlay.querySelector('#retemplate-apply').addEventListener('click', async () => {
+            const templatePath = templateSelect.value;
+            if (!templatePath) {
+                return;
+            }
+            const applyButton = overlay.querySelector('#retemplate-apply');
+            applyButton.disabled = true;
+            applyButton.textContent = '正在填充...';
+            try {
+                const response = await fetch('/api/articles/retemplate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: article.path, template_path: templatePath })
+                });
+                const result = await response.json();
+                if (!response.ok) {
+                    window.app?.showNotification(result.detail || '更换模板失败', 'error');
+                    applyButton.disabled = false;
+                    applyButton.textContent = '填充并替换';
+                    return;
+                }
+                close();
+                window.app?.showNotification('已用新模板重新填充', 'success');
+                await this.loadArticles();
+            } catch (error) {
+                window.app?.showNotification('更换模板失败', 'error');
+                applyButton.disabled = false;
+                applyButton.textContent = '填充并替换';
+            }
+        });
+    }
+
     // 预览文章  
     async previewArticle(article) {  
         try {  

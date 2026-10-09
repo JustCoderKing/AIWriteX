@@ -2,36 +2,47 @@ platforms:
   - name: 微博
     weight: 0.3
     enabled: true
+    fetch_count: 3
   - name: 抖音
     weight: 0.2
     enabled: true
+    fetch_count: 1
   - name: 小红书
     weight: 0.12
     enabled: true
+    fetch_count: 3
   - name: 今日头条
     weight: 0.1
     enabled: true
+    fetch_count: 1
   - name: 百度热点
     weight: 0.08
     enabled: true
+    fetch_count: 1
   - name: 哔哩哔哩
     weight: 0.06
     enabled: true
+    fetch_count: 1
   - name: 快手
     weight: 0.05
     enabled: true
+    fetch_count: 1
   - name: 虎扑
     weight: 0.05
     enabled: true
+    fetch_count: 1
   - name: 豆瓣小组
     weight: 0.02
     enabled: true
+    fetch_count: 1
   - name: 澎湃新闻
     weight: 0.01
     enabled: true
+    fetch_count: 1
   - name: 知乎热榜
     weight: 0.01
     enabled: true
+    fetch_count: 1
 publish_platform: wechat
 wechat:
   credentials:
@@ -187,17 +198,20 @@ article_format: html
 format_publish: true
 dimensional_creative:
   enabled: true
-  creative_intensity: 1
+  creative_intensity: 1.1
   preserve_core_info: true
   allow_experimental: false
-  auto_dimension_selection: true
+  auto_dimension_selection: false
+  account_tracks:
+    primary: 情感生活
+    secondary: 生活方式
   selected_dimensions: []
   priority_categories:
-    - emotion
-    - audience
     - style
+    - emotion
+    - personality
     - theme
-  max_dimensions: 5
+  max_dimensions: 7
   compatibility_threshold: 0.6
   available_categories:
     - style
@@ -216,26 +230,26 @@ dimensional_creative:
     - structure
     - rhythm
   enabled_dimensions:
-    style: false
+    style: true
     culture: false
     time: false
-    personality: false
-    emotion: false
+    personality: true
+    emotion: true
     format: false
     scene: false
-    audience: false
-    theme: false
-    technique: false
+    audience: true
+    theme: true
+    technique: true
     language: false
-    tone: false
+    tone: true
     perspective: false
     structure: false
-    rhythm: false
+    rhythm: true
   dimension_options:
     style:
       name: 文体风格
       allow_custom: true
-      selected_option: ''
+      selected_option: prose
       custom_input: ''
       preset_options:
         - name: poetry
@@ -373,7 +387,7 @@ dimensional_creative:
     personality:
       name: 人格角色
       allow_custom: true
-      selected_option: ''
+      selected_option: emotion_healer
       custom_input: ''
       preset_options:
         - name: libai
@@ -427,7 +441,7 @@ dimensional_creative:
     emotion:
       name: 情感调性
       allow_custom: true
-      selected_option: ''
+      selected_option: healing
       custom_input: ''
       preset_options:
         - name: healing
@@ -473,7 +487,7 @@ dimensional_creative:
     format:
       name: 表达格式
       allow_custom: true
-      selected_option: ''
+      selected_option: letter
       custom_input: ''
       preset_options:
         - name: diary
@@ -565,7 +579,7 @@ dimensional_creative:
     audience:
       name: 目标受众
       allow_custom: true
-      selected_option: ''
+      selected_option: parents
       custom_input: ''
       preset_options:
         - name: gen_z
@@ -611,7 +625,7 @@ dimensional_creative:
     theme:
       name: 主题内容
       allow_custom: true
-      selected_option: ''
+      selected_option: love
       custom_input: ''
       preset_options:
         - name: growth
@@ -657,7 +671,7 @@ dimensional_creative:
     technique:
       name: 表现技法
       allow_custom: true
-      selected_option: ''
+      selected_option: metaphor
       custom_input: ''
       preset_options:
         - name: first_person
@@ -741,7 +755,7 @@ dimensional_creative:
     tone:
       name: 语调语气
       allow_custom: true
-      selected_option: ''
+      selected_option: casual
       custom_input: ''
       preset_options:
         - name: serious
@@ -851,7 +865,7 @@ dimensional_creative:
     rhythm:
       name: 节奏韵律
       allow_custom: true
-      selected_option: ''
+      selected_option: slow
       custom_input: ''
       preset_options:
         - name: fast
@@ -906,3 +920,28 @@ page_design:
     primary_color: '#3a7bd5'
     secondary_color: '#00b09b'
     highlight_bg: '#f0f7ff'
+search_sites:
+  - id: baidu
+    name: 百度
+    enabled: true
+    count: 1
+    builtin: true
+    url: https://www.baidu.com/s?wd={topic}&rn={max_results}
+  - id: sogou
+    name: 搜狗
+    enabled: true
+    count: 1
+    builtin: true
+    url: https://www.sogou.com/web?query={topic}
+  - id: '360'
+    name: '360'
+    enabled: true
+    count: 1
+    builtin: true
+    url: https://www.so.com/s?q={topic}&pn=1&rn={max_results}
+  - id: bing
+    name: 必应
+    enabled: true
+    count: 1
+    builtin: true
+    url: https://www.bing.com/search?q={topic}&count={max_results}

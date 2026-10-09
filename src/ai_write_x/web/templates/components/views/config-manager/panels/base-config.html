@@ -106,21 +106,18 @@
             <h3 class="section-title">  
                 生成设置  
             </h3>  
+            <div class="search-sites-block">
+                <p class="form-help">写作只使用已启用的网站，并按每个网站的条数取结果。试搜只用于测试，不会保存，也不会进入文章。</p>
+                <div id="search-sites-list"></div>
+                <div class="search-site-add">
+                    <input type="text" id="new-search-site-name" class="form-control" placeholder="网站名称">
+                    <input type="text" id="new-search-site-url" class="form-control" placeholder="搜索地址，需包含 {topic}">
+                    <input type="number" id="new-search-site-count" class="form-control" min="1" max="10" value="3">
+                    <button type="button" class="btn btn-secondary" id="add-search-site">添加网站</button>
+                </div>
+                <div id="search-trial-result" hidden></div>
+            </div>
             <div class="form-row">  
-                <div class="form-group form-group-quarter">  
-                    <label for="max-search-results">最大搜索数量</label>  
-                    <input type="number" id="max-search-results" class="form-control"   
-                           min="1" max="20" value="10">  
-                    <small class="form-help">AIForge返回的最大搜索结果数（1-20）</small>  
-                </div>  
-                  
-                <div class="form-group form-group-quarter">  
-                    <label for="min-search-results">最小搜索数量</label>  
-                    <input type="number" id="min-search-results" class="form-control"   
-                           min="1" max="10" value="3">  
-                    <small class="form-help">AIForge返回的最小搜索结果数（1-10）</small>  
-                </div>  
-                  
                 <div class="form-group form-group-quarter">  
                     <label for="min-article-len">最小文章字数</label>  
                     <input type="number" id="min-article-len" class="form-control"   

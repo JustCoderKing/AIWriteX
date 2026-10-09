@@ -54,6 +54,9 @@ class ContentGenerationEngine(BaseWorkflowFramework):
         success = False
 
         try:
+            from src.ai_write_x.core.crew_output_patch import install_crew_output_patch
+
+            install_crew_output_patch()
             self.validate_config()
             self.agents = self.setup_agents()
             self.tasks = self.setup_tasks()

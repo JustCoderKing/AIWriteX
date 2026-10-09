@@ -14,8 +14,6 @@ from src.ai_write_x.utils import log
 from src.ai_write_x.tools import search_template
 from src.ai_write_x.utils.path_manager import PathManager
 
-from aiforge import AIForgeEngine
-
 
 class ReadTemplateToolInput(BaseModel):
     pass
@@ -34,6 +32,14 @@ class ReadTemplateTool(BaseTool):
 
         # 获取模板文件的绝对路径
         template_dir_abs = PathManager.get_template_dir()
+        forced = getattr(config, "forced_template_file", None)
+        if isinstance(forced, str) and os.path.isfile(forced):
+            selected_template_file = forced
+            with open(selected_template_file, "r", encoding="utf-8") as file:
+                selected_template_content = file.read()
+            return self._render_template_result(
+                config, template_dir_abs, selected_template_file, selected_template_content
+            )
 
         # 根据custom_topic是否为空选择配置源
         if config.custom_topic:
@@ -88,6 +94,11 @@ class ReadTemplateTool(BaseTool):
         with open(selected_template_file, "r", encoding="utf-8") as file:
             selected_template_content = file.read()
 
+        return self._render_template_result(
+            config, template_dir_abs, selected_template_file, selected_template_content
+        )
+
+    def _render_template_result(self, config, template_dir_abs, selected_template_file, selected_template_content):
         template_content = utils.compress_html(
             selected_template_content,
             config.use_compress,
@@ -169,12 +180,7 @@ class AIForgeSearchTool(BaseTool):
 
         if len(urls) == 0:
             log.print_log("开始执行搜索，请耐心等待...")
-            results = self._excute_search(
-                topic,
-                config.aiforge_search_max_results,
-                config.aiforge_search_min_results,
-                config.aiforge_api_key,
-            )
+            results = self._excute_search(topic)
 
             source_type = "搜索"
         else:
@@ -246,6 +252,12 @@ class AIForgeSearchTool(BaseTool):
                     formatted += f"## 结果 {i}\n"
                     formatted += f"**标题**: {title}\n"
                     formatted += f"**发布时间**: {result.get('pub_time', '未知时间')}\n"
+                    source_url = result.get("url", "")
+                    if source_url:
+                        formatted += f"**链接**: {source_url}\n"
+                    source_name = result.get("source_name", "")
+                    if source_name:
+                        formatted += f"**来源**: {source_name}\n"
                     formatted += f"**摘要**: {abstract}\n"
 
                     # 如果是URL提取，添加更多内容信息
@@ -317,92 +329,28 @@ class AIForgeSearchTool(BaseTool):
             normalized["content"] = str(normalized["content"]).strip()
         return normalized
 
-    def _excute_search(self, topic, max_results, min_results, aiforge_api_key):
+    def _excute_search(self, topic):
+        """按系统设置中已启用的网站和各自条数检索。"""
         try:
-            # 启用AIForge并且配置了key才能使用aiforge搜索
-            if not aiforge_api_key:
-                log.print_log("未配置AIForge API KEY，将不使用搜索结果生成文章")
+            sites = [site for site in Config.get_instance().search_sites if site.get("enabled")]
+            if not sites:
+                log.print_log("没有启用的搜索网站，将不使用搜索结果生成文章", "warning")
                 return None
 
-            # 这里可以有两种形式的传参，第2种不指定要求，需要对输出进行映射
-            # 1. f"搜索{min_results}条'{topic}'的新闻，搜索结果数据要求：title、abstract、url、pub_time字段"
-            # 2. f"搜索{min_results}条'{topic}'的新闻"
-            results = AIForgeEngine(config_file=Config.get_instance().config_aiforge_path)(
-                f"搜索{min_results}条'{topic}'的新闻"
-            )
-            raw_data = getattr(results, "data", None)
-            if raw_data is None and isinstance(results, str):
-                raw_data = results
-            if isinstance(results, dict) and raw_data is None:
-                raw_data = results.get("data")
-
-            if not raw_data:
-                log.print_log("AIForge 未返回搜索数据", "warning")
+            results = search_template.search_enabled_sites(sites, topic)
+            if not results:
+                log.print_log("已启用的搜索网站均未返回可用结果", "warning")
                 return None
 
-            # AIForge 偶发直接返回字符串（错误/摘要），尽量解析，否则记警告后放弃
-            if isinstance(raw_data, str):
-                text = raw_data.strip()
-                parsed = None
-                if text.startswith("{") or text.startswith("["):
-                    try:
-                        import json
-
-                        parsed = json.loads(text)
-                    except Exception:
-                        parsed = None
-                if isinstance(parsed, dict):
-                    raw_data = parsed.get("data") or parsed.get("results") or [parsed]
-                elif isinstance(parsed, list):
-                    raw_data = parsed
-                else:
-                    log.print_log(
-                        f"AIForge 返回字符串而非结果列表，前120字: {text[:120]}",
-                        "warning",
-                    )
-                    return None
-
-            if not isinstance(raw_data, list):
-                log.print_log(f"AIForge 返回数据类型异常: {type(raw_data)}", "warning")
-                return None
-
-            # 先把 snippet/summary 等别名归一成 abstract，避免后续字段映射丢掉原文摘要
-            pre_normalized = [
-                self._normalize_search_item(item) for item in raw_data if isinstance(item, dict)
-            ]
-
-            # 因为没输出格式要求，这里需要获取到后进行映射
-            mapped = AIForgeEngine.map_result_to_format(
-                pre_normalized, ["title", "abstract", "url", "pub_time"]  # type: ignore
-            )
-            if not isinstance(mapped, list):
-                mapped = pre_normalized
-
-            # 再归一化一次，并按索引回填被映射清空的摘要
-            normalized = []
-            for idx, item in enumerate(mapped):
-                merged = self._normalize_search_item(item)
-                if not merged.get("abstract") and idx < len(pre_normalized):
-                    merged["abstract"] = pre_normalized[idx].get("abstract", "")
-                if not merged.get("title") and idx < len(pre_normalized):
-                    merged["title"] = pre_normalized[idx].get("title", "")
-                if not merged.get("url") and idx < len(pre_normalized):
-                    merged["url"] = pre_normalized[idx].get("url", "")
-                if merged.get("title") and merged.get("abstract"):
-                    normalized.append(merged)
-
-            log.print_log(
-                f"搜索字段规范化后可用结果：{len(normalized)}/{len(pre_normalized)}"
-            )
-            for i, item in enumerate(normalized[:max_results], 1):
+            for index, item in enumerate(results, 1):
                 title = (item.get("title") or "")[:60]
                 abs_len = len((item.get("abstract") or "").strip())
-                pub = item.get("pub_time") or "无时间"
+                source_name = item.get("source_name") or ""
                 url = (item.get("url") or "")[:80]
                 log.print_log(
-                    f"搜索结果[{i}] 标题={title} | 摘要={abs_len}字 | 时间={pub} | url={url}"
+                    f"搜索结果[{index}] 来源={source_name} | 标题={title} | 摘要={abs_len}字 | url={url}"
                 )
-            return normalized[:max_results]
+            return results
         except Exception as e:
             log.print_traceback("搜索过程中发生错误：", e)
             return None

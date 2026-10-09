@@ -39,6 +39,7 @@ class GenerateRequest(BaseModel):
     topic: str
     platform: Optional[str] = ""
     reference: Optional[ReferenceConfig] = None
+    creative: Optional[dict] = None
 
 
 @router.get("/config/validate")
@@ -104,6 +105,8 @@ async def generate_content(request: GenerateRequest):
             "custom_template": "",
             "platform": request.platform or "",
         }
+        if isinstance(request.creative, dict) and request.creative:
+            config_data["task_creative"] = request.creative
 
         # 如果启用借鉴模式,覆盖默认值
         if request.reference:
@@ -360,6 +363,14 @@ async def websocket_logs(websocket: WebSocket):
                 pass
 
 
+def _platform_fetch_count(value) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = 1
+    return max(0, min(10, count))
+
+
 @router.get("/hot-topics")
 async def get_hot_topics():
     """
@@ -368,15 +379,23 @@ async def get_hot_topics():
     try:
         config = Config.get_instance()
 
-        # 获取随机平台
-        platform = utils.get_random_platform(config.platforms)
+        topics = []
+        for platform_config in config.platforms or []:
+            if not platform_config.get("enabled", True):
+                continue
+            platform_name = platform_config.get("name") or ""
+            fetch_count = _platform_fetch_count(platform_config.get("fetch_count", 1))
+            if not platform_name or fetch_count <= 0:
+                continue
+            items = hotnews.get_platform_hot_items(platform_name, fetch_count)
+            for item in items:
+                item["platform"] = platform_name
+                topics.append(item)
+            log.print_log(f"热搜平台 {platform_name} 获取 {len(items)}/{fetch_count} 条", "info")
 
-        # 选择平台话题 - 前5个热门话题根据权重选一个
-        topic = hotnews.select_platform_topic(platform, 5)
-
-        log.print_log(f"获取到热搜话题: 平台={platform}, 话题={topic}", "info")
-
-        return {"status": "success", "platform": platform, "topic": topic}
+        if not topics:
+            log.print_log("已启用的热搜平台均未获取到话题", "warning")
+        return {"status": "success", "topics": topics}
 
     except Exception as e:
         log.print_log(f"获取热搜失败: {str(e)}", "error")

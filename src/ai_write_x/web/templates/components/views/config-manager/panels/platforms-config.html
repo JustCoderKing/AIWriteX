@@ -1,7 +1,7 @@
 <div id="config-platforms" class="config-panel">  
     <div class="config-header">  
         <h2>热搜平台</h2>  
-        <p class="config-description">设置各平台热搜话题的随机选取权重,控制选用优先级</p>  
+        <p class="config-description">设置各平台是否参与热搜，以及每次获取的话题数量</p>  
     </div>  
       
     <div class="config-form">  
@@ -18,6 +18,7 @@
                             <th class="col-enabled">启用</th>  
                             <th class="col-platform">平台</th>  
                             <th class="col-weight">权重</th>  
+                            <th class="col-fetch-count">获取数量</th>
                             <th class="col-description">说明</th>  
                         </tr>  
                     </thead>  
@@ -37,8 +38,8 @@
             <div class="notice-content">  
                 <strong>设置说明:</strong>  
                 <ul>  
-                    <li>根据权重随机一个平台,获取其当前的最热门话题</li>  
-                    <li>不启用则不会被选取,全部不启用默认采用微博</li>  
+                    <li>自动获取热搜时，从每个已启用的平台按获取数量取话题</li>
+                    <li>获取数量为 0 的平台不会取话题；不启用则不会被选取</li>  
                     <li>修改设置仅当前运行有效，永久生效需保存设置</li>  
                 </ul>  
             </div>  
