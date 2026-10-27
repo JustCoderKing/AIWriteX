@@ -247,6 +247,34 @@ class Config:
             "auto_publish": False,
             "article_format": "html",
             "format_publish": True,
+            # 一期写作质量：大纲 → 成稿 → 轻质检
+            "writing": {
+                "outline_enabled": True,
+                "hooks_enabled": True,
+                "qc_enabled": True,
+                "qc_max_rewrite": 1,
+            },
+            # 写作前素材收集（自定义题目搜索）
+            "research": {
+                "mode": "auto",  # auto | always | off
+                "llm_query_rewrite": True,
+                "llm_relevance_check": False,
+                "relevance_threshold": 0.25,
+                "max_materials": 8,
+            },
+            # 二期配图
+            "image": {
+                "cover_enabled": True,
+                "inline_enabled": True,
+                "inline_min": 2,
+                "inline_max": 4,
+            },
+            # 三期人味
+            "humanize": {
+                "enabled": True,
+                "intensity": "low",
+                "llm_polish": False,
+            },
             # 维度化创意配置
             "dimensional_creative": {
                 "enabled": True,
@@ -1720,6 +1748,50 @@ class Config:
         """维度化创意配置"""
         with self._lock:
             return self.creative_config
+
+    @property
+    def writing_config(self):
+        """一期写作质量配置"""
+        with self._lock:
+            if not self.config:
+                raise ValueError("配置未加载")
+            defaults = self.default_config.get("writing", {})
+            merged = dict(defaults)
+            merged.update(self.config.get("writing") or {})
+            return merged
+
+    @property
+    def research_config(self):
+        """写作前素材收集配置"""
+        with self._lock:
+            if not self.config:
+                raise ValueError("配置未加载")
+            defaults = self.default_config.get("research", {})
+            merged = dict(defaults)
+            merged.update(self.config.get("research") or {})
+            return merged
+
+    @property
+    def image_config(self):
+        """二期配图配置"""
+        with self._lock:
+            if not self.config:
+                raise ValueError("配置未加载")
+            defaults = self.default_config.get("image", {})
+            merged = dict(defaults)
+            merged.update(self.config.get("image") or {})
+            return merged
+
+    @property
+    def humanize_config(self):
+        """三期人味配置"""
+        with self._lock:
+            if not self.config:
+                raise ValueError("配置未加载")
+            defaults = self.default_config.get("humanize", {})
+            merged = dict(defaults)
+            merged.update(self.config.get("humanize") or {})
+            return merged
 
     @property
     def smart_recommendation_config(self):

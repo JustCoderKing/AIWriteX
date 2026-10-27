@@ -121,21 +121,28 @@ class UnifiedContentWorkflow:
         )
 
     def _generate_base_content(self, topic: str, **kwargs) -> ContentResult:
-        """生成基础内容"""
-        # 动态获取配置
+        """生成基础内容（可走一期写作流水线）"""
+        config = Config.get_instance()
+        writing = config.writing_config
+        use_pipeline = any(
+            [
+                writing.get("outline_enabled", True),
+                writing.get("qc_enabled", True),
+            ]
+        )
+        if use_pipeline:
+            from src.ai_write_x.core.writing import WritingPipeline
+
+            return WritingPipeline().run(topic, **kwargs)
+
         base_config = self.get_base_content_config(**kwargs)
-
-        # 创建内容生成引擎
         self.content_engine = ContentGenerationEngine(base_config)
-
-        # 准备输入数据
         input_data = {
             "topic": topic,
             "platform": kwargs.get("platform", ""),
             "urls": kwargs.get("urls", []),
             "reference_ratio": kwargs.get("reference_ratio", 0.0),
         }
-
         return self.content_engine.execute_workflow(input_data)
 
     def execute(self, topic: str, **kwargs) -> Dict[str, Any]:
@@ -154,19 +161,37 @@ class UnifiedContentWorkflow:
 
         try:
             # 1. 生成基础内容（统一Markdown格式）
+            # WritingPipeline 内部已输出 WRITING/OUTLINE/QC 进度；旧路径补 END
+            writing = config.writing_config
+            use_pipeline = any(
+                [
+                    writing.get("outline_enabled", True),
+                    writing.get("qc_enabled", True),
+                ]
+            )
+            if not use_pipeline:
+                log.print_log("[PROGRESS:WRITING:START]", "internal")
             base_content = self._generate_base_content(
                 topic, publish_platform=publish_platform, **kwargs
             )
-            log.print_log("[PROGRESS:WRITING:END]", "internal")
+            if not use_pipeline:
+                log.print_log("[PROGRESS:WRITING:END]", "internal")
 
             # 2. 维度化创意变换
             log.print_log("[PROGRESS:CREATIVE:START]", "internal")
             final_content = self._apply_dimensional_creative_transformation(base_content, **kwargs)
             log.print_log("[PROGRESS:CREATIVE:END]", "internal")
 
+            # 2.5 人味后处理（三期，对 Markdown）
+            final_content = self._apply_humanize(final_content)
+
+            # 2.6 配图（二期：封面路径元数据 + Markdown 文内图）
+            final_content = self._apply_imaging(final_content, title=title)
+
             # 3. 转换处理（template或design）
 
             transform_content = self._transform_content(final_content, publish_platform, **kwargs)
+            transform_content = self._replace_template_images(transform_content, final_content)
 
             # 4. 保存（非AI参与）
             log.print_log("[PROGRESS:SAVE:START]", "internal")
@@ -174,6 +199,14 @@ class UnifiedContentWorkflow:
             if save_result.get("success", False):
                 article_path = save_result.get("path")
                 kwargs["article_path"] = article_path
+                cover = (final_content.metadata or {}).get("cover")
+                if cover:
+                    try:
+                        from src.ai_write_x.core.imaging import write_cover_design
+
+                        write_cover_design(article_path, cover)
+                    except Exception as e:
+                        log.print_log(f"写入封面设计失败: {e}", "warning")
                 log.print_log(f"文章《{title}》保存成功！")
             log.print_log("[PROGRESS:SAVE:END]", "internal")
 
@@ -206,6 +239,63 @@ class UnifiedContentWorkflow:
         finally:
             duration = time.time() - start_time
             self.monitor.track_execution("unified_workflow", duration, success, {"topic": topic})
+
+    def _apply_humanize(self, content: ContentResult) -> ContentResult:
+        """三期：基础人味后处理（Markdown 规则），异常时透传。"""
+        try:
+            cfg = Config.get_instance().humanize_config
+            if not cfg.get("enabled", True):
+                return content
+            log.print_log("[PROGRESS:HUMANIZE:START]", "internal")
+            from src.ai_write_x.core.humanize import humanize_markdown
+
+            new_body = humanize_markdown(content.content, intensity=cfg.get("intensity", "low"))
+            metadata = dict(content.metadata or {})
+            metadata["humanized"] = True
+            log.print_log("[PROGRESS:HUMANIZE:END]", "internal")
+            return ContentResult(
+                title=content.title,
+                content=new_body,
+                summary=content.summary,
+                content_format=content.content_format,
+                metadata=metadata,
+                created_at=content.created_at,
+                content_type=content.content_type,
+            )
+        except Exception as e:
+            log.print_log(f"人味处理失败，保留原文: {e}", "warning")
+            return content
+
+    def _apply_imaging(self, content: ContentResult, title: str) -> ContentResult:
+        """二期：封面 + 文内配图，异常时透传。"""
+        try:
+            cfg = Config.get_instance().image_config
+            if not (cfg.get("cover_enabled", True) or cfg.get("inline_enabled", True)):
+                return content
+            log.print_log("[PROGRESS:IMAGE:START]", "internal")
+            from src.ai_write_x.core.imaging import apply_imaging
+
+            result = apply_imaging(content, title=title, config=cfg)
+            log.print_log("[PROGRESS:IMAGE:END]", "internal")
+            return result
+        except Exception as e:
+            log.print_log(f"配图失败，跳过: {e}", "warning")
+            return content
+
+    def _replace_template_images(
+        self, transformed: ContentResult, source: ContentResult
+    ) -> ContentResult:
+        """模板/设计输出中的 picsum 占位替换为本次生成的文内图。"""
+        urls = (source.metadata or {}).get("inline_images") or []
+        if not urls or "<img" not in (transformed.content or "").lower():
+            return transformed
+        try:
+            from src.ai_write_x.core.imaging import replace_placeholder_images
+
+            transformed.content = replace_placeholder_images(transformed.content, urls)
+        except Exception as e:
+            log.print_log(f"替换模板占位图失败: {e}", "warning")
+        return transformed
 
     def _transform_content(
         self, content: ContentResult, publish_platform: str, **kwargs
